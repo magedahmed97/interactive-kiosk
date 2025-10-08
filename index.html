@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive Kiosk</title>
+<style>
+html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-family: Arial, sans-serif; }
+
+.kiosk-viewport {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.stage {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Center container keeps 16:9 ratio */
+.center-container {
+  position: relative;
+  width: min(100vw, calc(100vh * 16 / 9));
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.visible-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Sidebars */
+.stage::before, .stage::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 20%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-image: url('assets/backgrounds/sidebar.jpg');
+  z-index: 1;
+}
+.stage::before { left: 0; }
+.stage::after { right: 0; }
+
+/* Top/Bottom bars */
+.top-bar, .bottom-bar {
+  position: absolute;
+  left: 15%; /* align with sidebars */
+  width: 70%; /* center area */
+  background-image: url('assets/backgrounds/sidebar.jpg');
+  background-size: cover;
+  background-position: center;
+  z-index: 1;
+}
+.top-bar { top: 0; height: 38%; }
+.bottom-bar { bottom: 0; height: 38%; }
+
+/* Touch points */
+.touch-point {
+  position: absolute;
+  width: 4.6875%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+}
+.touch-point .label { color: #fff; font-weight: bold; }
+
+/* Back button */
+.back-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 70px;
+  height: 70px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  cursor: pointer;
+  z-index: 10;
+}
+.back-button.hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="kiosk-viewport">
+  <div class="stage" id="stage">
+    <div class="center-container" id="centerContainer">
+      <img id="stageImage" class="visible-image" src="" alt="" />
+    </div>
+    <div class="top-bar"></div>
+    <div class="bottom-bar"></div>
+    <div id="backButton" class="back-button hidden">←</div>
+  </div>
+</div>
+
+<script>
+const stage = document.getElementById('stage');
+const centerContainer = document.getElementById('centerContainer');
+const backButton = document.getElementById('backButton');
+
+let currentState = 'main';
+let autoReturnTimeout = null;
+
+const states = {
+  'main': { 
+    bg: 'assets/backgrounds/0.0.jpg', 
+    points: [ { id: 'tp0.0', label: '', xPct: 49.7, yPct: 59.0, target: 'branch' } ] 
+  },
+  'branch': { 
+    bg: 'assets/backgrounds/0.1.jpg',
+    points: [ 
+      { id: '0.1.1', label: '1', xPct: 21.7, yPct: 60.7, target: '0.1.1' }, 
+      { id: '0.1.2', label: '2', xPct: 48.54, yPct: 26.2, target: '0.1.2' }, 
+      { id: '0.1.3', label: '3', xPct: 72.75, yPct: 39.5, target: '0.1.3' },
+     // { id: '0.1.kpi', label: 'KPI', xPct: 85, yPct: 10, target: '0.1.kpi' }
+    ],
+    backTarget: 'main'
+  },
+  // Leaf pages with their own touch points
+  '0.1.1': { 
+    bg: 'assets/gifs/0.1.1.jpg',
+    points: [
+      { id: '0.1.1.1', label: '1', xPct: 17.1, yPct: 28.6, target: '0.1.1.1' },
+      { id: '0.1.1.2', label: '2', xPct: 42.39, yPct: 49.68, target: '0.1.1.2' },
+      { id: '0.1.1.3', label: '3', xPct: 61.46, yPct: 37.52, target: '0.1.1.3' },
+      { id: '0.1.1.kpi', label: 'KPI1', xPct: 82.86, yPct: 26.09, target: '0.1.1.kpi' }
+    ],
+    autoReturn: true,
+    returnTo: 'branch',
+    timer: 10000,
+    backTarget: 'branch'
+  },
+  '0.1.2': { 
+    bg: 'assets/gifs/0.1.2.jpg',
+    points: [
+      { id: '0.1.2.1', label: '1', xPct: 23.8, yPct: 48.2, target: '0.1.2.1' },
+      { id: '0.1.2.2', label: '2', xPct: 44.38, yPct: 36.27, target: '0.1.2.2' },
+      { id: '0.1.2.3', label: '3', xPct: 63.74, yPct: 24.01, target: '0.1.2.3' },
+      { id: '0.1.2.kpi', label: 'KPI2', xPct: 11.52, yPct: 11.74, target: '0.1.2.kpi' }
+    ],
+    autoReturn: true,
+    returnTo: 'branch',
+    timer: 10000,
+    backTarget: 'branch'
+  },
+  '0.1.3': { 
+    bg: 'assets/gifs/0.1.3.jpg',
+    points: [
+      { id: '0.1.3.1', label: '1', xPct: 49.53, yPct: 19.85, target: '0.1.3.1' },
+      { id: '0.1.3.2', label: '2', xPct: 37.6, yPct: 57.9, target: '0.1.3.2' },
+      { id: '0.1.3.3', label: '3', xPct: 66.72, yPct: 57.27, target: '0.1.3.3' },
+      { id: '0.1.3.kpi', label: 'KPI3', xPct: 13.51, yPct: 11.74, target: '0.1.3.kpi' }
+    ],
+    autoReturn: true,
+    returnTo: 'branch',
+    timer: 10000,
+    backTarget: 'branch'
+  },
+  '0.1.kpi': { bg: 'assets/gifs/KPI.jpg', points: [], backTarget: 'branch' },
+
+  // Leaf pages without further touch points
+  '0.1.1.1': { bg: 'assets/gifs/0.1.1.1.jpg', points: [], backTarget: '0.1.1' },
+  '0.1.1.2': { bg: 'assets/gifs/0.1.1.2.jpg', points: [], backTarget: '0.1.1' },
+  '0.1.1.3': { bg: 'assets/gifs/0.1.1.3.jpg', points: [], backTarget: '0.1.1' },
+  '0.1.1.kpi': { bg: 'assets/gifs/KPI.jpg', points: [], backTarget: '0.1.1' },
+
+  '0.1.2.1': { bg: 'assets/gifs/0.1.2.1.jpg', points: [], backTarget: '0.1.2' },
+  '0.1.2.2': { bg: 'assets/gifs/0.1.2.2.jpg', points: [], backTarget: '0.1.2' },
+  '0.1.2.3': { bg: 'assets/gifs/0.1.2.3.jpg', points: [], backTarget: '0.1.2' },
+  '0.1.2.kpi': { bg: 'assets/gifs/KPI.jpg', points: [], backTarget: '0.1.2' },
+
+  '0.1.3.1': { bg: 'assets/gifs/0.1.3.1.jpg', points: [], backTarget: '0.1.3' },
+  '0.1.3.2': { bg: 'assets/gifs/0.1.3.2.jpg', points: [], backTarget: '0.1.3' },
+  '0.1.3.3': { bg: 'assets/gifs/0.1.3.3.jpg', points: [], backTarget: '0.1.3' },
+  '0.1.3.kpi': { bg: 'assets/gifs/KPI.jpg', points: [], backTarget: '0.1.3' }
+};
+
+function renderState(id) {
+  const s = states[id];
+  if (!s) return;
+
+  const img = document.getElementById('stageImage');
+  img.src = s.bg;
+
+  // Remove old touch points
+  centerContainer.querySelectorAll('.touch-point').forEach(el => el.remove());
+
+  // Add new touch points
+  s.points.forEach(pt => {
+    const el = document.createElement('div');
+    el.className = 'touch-point';
+    el.style.left = pt.xPct + '%';
+    el.style.top = pt.yPct + '%';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = pt.label;
+    el.appendChild(label);
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (pt.target) navigateTo(pt.target);
+    });
+    centerContainer.appendChild(el);
+  });
+
+  // Back button visibility
+  backButton.classList.toggle('hidden', !s.backTarget);
+
+  // Auto return timer
+  if (autoReturnTimeout) clearTimeout(autoReturnTimeout);
+  if (s.autoReturn && s.returnTo) {
+    autoReturnTimeout = setTimeout(() => {
+      navigateTo(s.returnTo);
+    }, s.timer);
+  }
+}
+
+function navigateTo(id) {
+  currentState = id;
+  renderState(id);
+}
+
+backButton.addEventListener('click', e => {
+  e.stopPropagation();
+  const s = states[currentState];
+  if (s.backTarget) navigateTo(s.backTarget);
+});
+
+// Disable right-click and text selection
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('selectstart', e => e.preventDefault());
+
+// Handle window resize to keep touch points correct
+window.addEventListener('resize', () => renderState(currentState));
+
+// Initial render
+renderState('main');
+</script>
+</body>
+</html>
