@@ -1,346 +1,346 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Interactive Kiosk</title>
-<style>
-html, body {
-  height: 100%;
-  margin: 0;
-  background: #000;
-  overflow: hidden;
-  font-family: Arial, sans-serif;
-}
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Interactive Kiosk</title>
+  <style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+  }
 
-/* --- Layout --- */
-.kiosk-viewport {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #000;
-}
+  /* --- Layout --- */
+  .kiosk-viewport {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+  }
 
-.stage {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
+  .stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
 
-.center-container {
-  position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  z-index: 2;
-}
+  .center-container {
+    position: relative;
+    width: min(100vw, calc(100vh * 16 / 9));
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    z-index: 2;
+  }
 
-/* --- Backgrounds --- */
-.stage-bg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  z-index: 0;
-}
+  /* --- Backgrounds --- */
+  .stage-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    z-index: 0;
+  }
 
-.base-image, .overlay-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-.base-image { z-index: 1; opacity: 1; }
-.overlay-layer {
-  z-index: 2;
-  pointer-events: none;
-  transition: opacity 0.4s ease-in-out;
-}
+  .base-image, .overlay-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .base-image { z-index: 1; opacity: 1; }
+  .overlay-layer {
+    z-index: 2;
+    pointer-events: none;
+    transition: opacity 0.4s ease-in-out;
+  }
 
-/* --- Touch Points --- */
-.touch-point {
-  position: absolute;
-  width: 15%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background-image: url('assets/gifs/touch.gif');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  cursor: pointer;
-  z-index: 3;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
-}
+  /* --- Touch Points --- */
+  .touch-point {
+    position: absolute;
+    width: 15%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background-image: url('assets/gifs/touch.gif');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    cursor: pointer;
+    z-index: 3;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+  }
 
-/* --- Back Button --- */
-.back-button {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  width: 70px;
-  height: 70px;
-  border-radius: 10px;
-  background: rgba(0,0,0,0.6);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 34px;
-  cursor: pointer;
-  z-index: 10;
-}
-.back-button.hidden { display: none; }
+  /* --- Back Button --- */
+  .back-button {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 70px;
+    height: 70px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 34px;
+    cursor: pointer;
+    z-index: 10;
+  }
+  .back-button.hidden { display: none; }
 
-/* --- Loading Overlay --- */
-#loadingOverlay {
-  position: fixed;
-  inset: 0;
-  background: #000;
-  color: #fff;
-  display:flex;
-  flex-direction: column;
-  align-items:center;
-  justify-content:center;
-  font-size:20px;
-  z-index: 200;
-}
+  /* --- Loading Overlay --- */
+  #loadingOverlay {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    color: #fff;
+    display:flex;
+    flex-direction: column;
+    align-items:center;
+    justify-content:center;
+    font-size:20px;
+    z-index: 200;
+  }
 
-.loader {
-  width: 60px;
-  height: 60px;
-  border: 6px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 12px;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+  .loader {
+    width: 60px;
+    height: 60px;
+    border: 6px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 12px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 
-/* Decorative bars for detailed screens */
-.stage.decorated::before, .stage.decorated::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 50%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  background-image: url('assets/backgrounds/sidebar.jpg');
-  z-index: 1;
-}
-.stage.decorated::before { left: 0; }
-.stage.decorated::after { right: 0; }
-</style>
-</head>
-<body>
-<div id="loadingOverlay">
-  <div class="loader"></div>
-  <div>Loading…</div>
-</div>
-
-<div class="kiosk-viewport">
-  <div class="stage" id="stage">
-    <div id="stageBg" class="stage-bg"></div>
-
-    <div class="center-container" id="centerContainer">
-      <img id="stageBase" class="base-image" src="" alt="base" draggable="false" />
-    </div>
-
-    <div id="backButton" class="back-button hidden">←</div>
+  /* Decorative bars for detailed screens */
+  .stage.decorated::before, .stage.decorated::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 50%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    background-image: url('assets/backgrounds/sidebar.jpg');
+    z-index: 1;
+  }
+  .stage.decorated::before { left: 0; }
+  .stage.decorated::after { right: 0; }
+  </style>
+  </head>
+  <body>
+  <div id="loadingOverlay">
+    <div class="loader"></div>
+    <div>Loading…</div>
   </div>
-</div>
 
-<script>
-const centerContainer = document.getElementById('centerContainer');
-const backButton = document.getElementById('backButton');
-const loadingOverlay = document.getElementById('loadingOverlay');
-const stageBase = document.getElementById('stageBase');
-const stage = document.getElementById('stage');
-const stageBg = document.getElementById('stageBg');
+  <div class="kiosk-viewport">
+    <div class="stage" id="stage">
+      <div id="stageBg" class="stage-bg"></div>
 
-let currentState = 'main';
-let autoReturnTimeout = null;
-const activeOverlays = new Set();
+      <div class="center-container" id="centerContainer">
+        <img id="stageBase" class="base-image" src="" alt="base" draggable="false" />
+      </div>
 
-const states = {
-  'main': { 
-    bg: 'assets/backgrounds/0.0.jpg', 
-    points: [ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ],
-    decorated: false,
-    backBg: 'assets/backgrounds/backback0.jpg'
-  },
-  '0.1': { 
-    bg: 'assets/backgrounds/0.1.jpg', 
-    points: [
-      { id:'0.1.1', xPct:21.7, yPct:60.7, target:'0.1.1' },
-      { id:'0.1.2', xPct:48.54, yPct:26.2, target:'0.1.2' },
-      { id:'0.1.3', xPct:72.75, yPct:39.5, target:'0.1.3' }
-    ],
-    backTarget:'main',
-    decorated: false,
-    backBg: 'assets/backgrounds/backback1.jpg'
-  },
-  '0.1.1': { 
-    bg:'assets/gifs/0.1.1.jpg', 
-    points:[
-      { id:'0.1.1.1', xPct:17.1, yPct:28.6 },
-      { id:'0.1.1.2', xPct:42.39, yPct:49.68 },
-      { id:'0.1.1.3', xPct:61.46, yPct:37.52 },
-      { id:'kpi', xPct:82.86, yPct:26.09 }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-  },
-  '0.1.2': { 
-    bg:'assets/gifs/0.1.2.jpg', 
-    points:[
-      { id:'0.1.2.1', xPct:23.8, yPct:48.2 },
-      { id:'0.1.2.2', xPct:44.38, yPct:36.27 },
-      { id:'0.1.2.3', xPct:63.74, yPct:24.01 },
-      { id:'kpi', xPct:11.52, yPct:11.74 }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-  },
-  '0.1.3': { 
-    bg:'assets/gifs/0.1.3.jpg', 
-    points:[
-      { id:'0.1.3.1', xPct:49.53, yPct:19.85 },
-      { id:'0.1.3.2', xPct:37.6, yPct:57.9 },
-      { id:'0.1.3.3', xPct:66.72, yPct:57.27 },
-      { id:'kpi', xPct:13.51, yPct:11.74 }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-  }
-};
+      <div id="backButton" class="back-button hidden">←</div>
+    </div>
+  </div>
 
-/* ------------------ FULL PRELOAD ------------------ */
-async function preloadAllAssets() {
-  const knownFiles = [
-    'backgrounds/0.0.jpg',
-    'backgrounds/0.1.jpg',
-    'backgrounds/sidebar.jpg',
-    'backgrounds/backback0.jpg',
-    'backgrounds/backback1.jpg',
-    'gifs/touch.gif',
-    'gifs/0.1.1.1.webp','gifs/0.1.1.2.webp','gifs/0.1.1.3.webp','gifs/kpi.webp',
-    'gifs/0.1.2.1.webp','gifs/0.1.2.2.webp','gifs/0.1.2.3.webp','gifs/0.1.2.kpi.webp',
-    'gifs/0.1.3.1.webp','gifs/0.1.3.2.webp','gifs/0.1.3.3.webp','gifs/0.1.3.kpi.webp'
-  ];
+  <script>
+  const centerContainer = document.getElementById('centerContainer');
+  const backButton = document.getElementById('backButton');
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const stageBase = document.getElementById('stageBase');
+  const stage = document.getElementById('stage');
+  const stageBg = document.getElementById('stageBg');
 
-  const allAssets = knownFiles.map(f => 'assets/' + f);
-  let loaded = 0;
-  const total = allAssets.length;
+  let currentState = 'main';
+  let autoReturnTimeout = null;
+  const activeOverlays = new Set();
 
-  return new Promise(resolve => {
-    allAssets.forEach(src => {
-      const img = new Image();
-      img.src = src;
-      img.onload = img.onerror = () => {
-        if (++loaded === total) resolve();
-      };
-    });
-  });
-}
+  const states = {
+    'main': { 
+      bg: 'assets/backgrounds/0.0.jpg', 
+      points: [ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ],
+      decorated: false,
+      backBg: 'assets/backgrounds/backback0.jpg'
+    },
+    '0.1': { 
+      bg: 'assets/backgrounds/0.1.jpg', 
+      points: [
+        { id:'0.1.1', xPct:21.7, yPct:60.7, target:'0.1.1' },
+        { id:'0.1.2', xPct:48.54, yPct:26.2, target:'0.1.2' },
+        { id:'0.1.3', xPct:72.75, yPct:39.5, target:'0.1.3' }
+      ],
+      backTarget:'main',
+      decorated: false,
+      backBg: 'assets/backgrounds/backback1.jpg'
+    },
+    '0.1.1': { 
+      bg:'assets/gifs/0.1.1.jpg', 
+      points:[
+        { id:'0.1.1.1', xPct:17.1, yPct:28.6 },
+        { id:'0.1.1.2', xPct:42.39, yPct:49.68 },
+        { id:'0.1.1.3', xPct:61.46, yPct:37.52 },
+        { id:'0.1.1.1.kpi', xPct:82.86, yPct:26.09 }
+      ],
+      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    },
+    '0.1.2': { 
+      bg:'assets/gifs/0.1.2.jpg', 
+      points:[
+        { id:'0.1.2.1', xPct:23.8, yPct:48.2 },
+        { id:'0.1.2.2', xPct:44.38, yPct:36.27 },
+        { id:'0.1.2.3', xPct:63.74, yPct:24.01 },
+        { id:'0.1.1.2.kpi', xPct:11.52, yPct:11.74 }
+      ],
+      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    },
+    '0.1.3': { 
+      bg:'assets/gifs/0.1.3.jpg', 
+      points:[
+        { id:'0.1.3.1', xPct:49.53, yPct:19.85 },
+        { id:'0.1.3.2', xPct:37.6, yPct:57.9 },
+        { id:'0.1.3.3', xPct:66.72, yPct:57.27 },
+        { id:'0.1.1.3.kpi', xPct:13.51, yPct:11.74 }
+      ],
+      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    }
+  };
 
-/* ------------------ START APP ------------------ */
-async function startPreloading() {
-  await preloadAllAssets();
-  loadingOverlay.style.display = 'none';
-  renderState('main');
-}
-startPreloading();
+  /* ------------------ FULL PRELOAD ------------------ */
+  async function preloadAllAssets() {
+    const knownFiles = [
+      'backgrounds/0.0.jpg',
+      'backgrounds/0.1.jpg',
+      'backgrounds/sidebar.jpg',
+      'backgrounds/backback0.jpg',
+      'backgrounds/backback1.jpg',
+      'gifs/touch.gif',
+      'gifs/0.1.1.1.webp','gifs/0.1.1.2.webp','gifs/0.1.1.3.webp','gifs/0.1.1.kpi.webp',
+      'gifs/0.1.2.1.webp','gifs/0.1.2.2.webp','gifs/0.1.2.3.webp','gifs/0.1.2.kpi.webp',
+      'gifs/0.1.3.1.webp','gifs/0.1.3.2.webp','gifs/0.1.3.3.webp','gifs/0.1.3.kpi.webp'
+    ];
 
-/* ------------------ RENDER ------------------ */
-function renderState(id){
-  const s = states[id];
-  if(!s) return;
+    const allAssets = knownFiles.map(f => 'assets/' + f);
+    let loaded = 0;
+    const total = allAssets.length;
 
-  stage.classList.toggle('decorated', !!s.decorated);
-  stageBase.src = s.bg;
-
-  if(s.backBg) stageBg.style.backgroundImage = `url('${s.backBg}')`;
-  else stageBg.style.backgroundImage = 'none';
-
-  centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
-  centerContainer.querySelectorAll('.overlay-layer').forEach(e=>e.remove());
-  activeOverlays.clear();
-
-  if(s.points){
-    s.points.forEach(pt=>{
-      const el=document.createElement('div');
-      el.className='touch-point';
-      el.style.left=pt.xPct+'%';
-      el.style.top=pt.yPct+'%';
-      el.addEventListener('click',()=>{
-        if(pt.target){ 
-          navigateTo(pt.target); 
-        } else {
-          toggleOverlay(id, pt.id);
-        }
+    return new Promise(resolve => {
+      allAssets.forEach(src => {
+        const img = new Image();
+        img.src = src;
+        img.onload = img.onerror = () => {
+          if (++loaded === total) resolve();
+        };
       });
-      centerContainer.appendChild(el);
     });
   }
 
-  backButton.classList.toggle('hidden',!s.backTarget);
-  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-  if(s.autoReturn && s.returnTo){
-    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
+  /* ------------------ START APP ------------------ */
+  async function startPreloading() {
+    await preloadAllAssets();
+    loadingOverlay.style.display = 'none';
+    renderState('main');
   }
-  currentState = id;
-}
+  startPreloading();
 
-/* ------------------ TOGGLE OVERLAY ------------------ */
-function toggleOverlay(parentId, pointId){
-  const overlayId = parentId+'.overlay.'+pointId;
-  if(activeOverlays.has(overlayId)){
-    const img=document.getElementById(overlayId);
-    if(img){ img.remove(); activeOverlays.delete(overlayId); }
-  } else {
-    const img=document.createElement('img');
-    img.id=overlayId;
-    img.className='overlay-layer';
-    img.src='assets/gifs/'+pointId+'.webp';
-    img.style.opacity=1;
-    centerContainer.appendChild(img);
-    activeOverlays.add(overlayId);
+  /* ------------------ RENDER ------------------ */
+  function renderState(id){
+    const s = states[id];
+    if(!s) return;
+
+    stage.classList.toggle('decorated', !!s.decorated);
+    stageBase.src = s.bg;
+
+    if(s.backBg) stageBg.style.backgroundImage = `url('${s.backBg}')`;
+    else stageBg.style.backgroundImage = 'none';
+
+    centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
+    centerContainer.querySelectorAll('.overlay-layer').forEach(e=>e.remove());
+    activeOverlays.clear();
+
+    if(s.points){
+      s.points.forEach(pt=>{
+        const el=document.createElement('div');
+        el.className='touch-point';
+        el.style.left=pt.xPct+'%';
+        el.style.top=pt.yPct+'%';
+        el.addEventListener('click',()=>{
+          if(pt.target){ 
+            navigateTo(pt.target); 
+          } else {
+            toggleOverlay(id, pt.id);
+          }
+        });
+        centerContainer.appendChild(el);
+      });
+    }
+
+    backButton.classList.toggle('hidden',!s.backTarget);
+    if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
+    if(s.autoReturn && s.returnTo){
+      autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
+    }
+    currentState = id;
   }
-  resetAutoReturn();
-}
 
-/* ------------------ AUTO RETURN ------------------ */
-function resetAutoReturn(){
-  const s = states[currentState];
-  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-  if(s && s.autoReturn && s.returnTo){
-    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
+  /* ------------------ TOGGLE OVERLAY ------------------ */
+  function toggleOverlay(parentId, pointId){
+    const overlayId = parentId+'.overlay.'+pointId;
+    if(activeOverlays.has(overlayId)){
+      const img=document.getElementById(overlayId);
+      if(img){ img.remove(); activeOverlays.delete(overlayId); }
+    } else {
+      const img=document.createElement('img');
+      img.id=overlayId;
+      img.className='overlay-layer';
+      img.src='assets/gifs/'+pointId+'.webp';
+      img.style.opacity=1;
+      centerContainer.appendChild(img);
+      activeOverlays.add(overlayId);
+    }
+    resetAutoReturn();
   }
-}
 
-/* ------------------ NAVIGATION ------------------ */
-function navigateTo(id){ renderState(id); }
+  /* ------------------ AUTO RETURN ------------------ */
+  function resetAutoReturn(){
+    const s = states[currentState];
+    if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
+    if(s && s.autoReturn && s.returnTo){
+      autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
+    }
+  }
 
-backButton.addEventListener('click',()=>{
-  const s = states[currentState];
-  if(s && s.backTarget) navigateTo(s.backTarget);
-});
+  /* ------------------ NAVIGATION ------------------ */
+  function navigateTo(id){ renderState(id); }
 
-document.addEventListener('contextmenu', e=>e.preventDefault());
-document.addEventListener('selectstart', e=>e.preventDefault());
-window.addEventListener('resize', ()=>renderState(currentState));
-</script>
-</body>
-</html>
+  backButton.addEventListener('click',()=>{
+    const s = states[currentState];
+    if(s && s.backTarget) navigateTo(s.backTarget);
+  });
+
+  document.addEventListener('contextmenu', e=>e.preventDefault());
+  document.addEventListener('selectstart', e=>e.preventDefault());
+  window.addEventListener('resize', ()=>renderState(currentState));
+  </script>
+  </body>
+  </html>
