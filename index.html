@@ -89,40 +89,43 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
 }
 .back-button.hidden { display: none; }
 
+/* --- Updated loading overlay --- */
 #loadingOverlay {
   position: fixed;
   inset: 0;
-  background: #000;
-  color: #fff;
+  background: rgba(0,0,0,0.7); /* semi-transparent black */
+  color: red;
   display:flex;
+  flex-direction: column;
   align-items:center;
   justify-content:center;
-  font-size:20px;
+  font-size:22px;
   z-index: 200;
-} 
-
-/* Decorative bars only appear on detailed screens */
-.stage.decorated::before, .stage.decorated::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  width: 50%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  background-image: url('assets/backgrounds/sidebar.jpg');
-  z-index: 1;
+  backdrop-filter: blur(8px); /* soft blur */
 }
-.stage.decorated::before { left: 0; }
-.stage.decorated::after { right: 0; }
+.loader {
+  margin-top: 20px;
+  border: 6px solid rgba(255,0,0,0.3);
+  border-top: 6px solid red;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
 </style>
 </head>
 <body>
-<div id="loadingOverlay">Loading assets…</div>
+<div id="loadingOverlay">
+  <div>Loading...</div>
+  <div class="loader"></div>
+</div>
 
 <div class="kiosk-viewport">
   <div class="stage" id="stage">
-    <!-- Extra large background for main/0.1 -->
     <div id="stageBg" class="stage-bg"></div>
 
     <div class="center-container" id="centerContainer">
@@ -137,7 +140,6 @@ const centerContainer = document.getElementById('centerContainer');
 const backButton = document.getElementById('backButton');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const stageBase = document.getElementById('stageBase');
-const stage = document.getElementById('stage');
 const stageBg = document.getElementById('stageBg');
 
 let currentState = 'main';
@@ -170,7 +172,7 @@ const states = {
       { id:'0.1.1.3', xPct:61.46, yPct:37.52 },
       { id:'kpi', xPct:82.86, yPct:26.09 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
   },
   '0.1.2': { 
     bg:'assets/gifs/0.1.2.jpg', 
@@ -180,7 +182,7 @@ const states = {
       { id:'0.1.2.3', xPct:63.74, yPct:24.01 },
       { id:'kpi', xPct:11.52, yPct:11.74 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
   },
   '0.1.3': { 
     bg:'assets/gifs/0.1.3.jpg', 
@@ -190,55 +192,61 @@ const states = {
       { id:'0.1.3.3', xPct:66.72, yPct:57.27 },
       { id:'kpi', xPct:13.51, yPct:11.74 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
   }
 };
 
-// Preload images including backbacks
-const allImages = [];
-for (let k in states) {
-  if (states[k].bg) allImages.push(states[k].bg);
-  if (states[k].backBg) allImages.push(states[k].backBg);
-}
-let loaded = 0;
-allImages.forEach(src => {
-  const img = new Image();
-  img.src = src;
-  img.onload = img.onerror = () => { if(++loaded === allImages.length) start(); };
-});
+// preload all assets recursively (jpg/png/webp/gif)
+async function preloadAllAssets() {
+  const exts = ['jpg','jpeg','png','webp','gif'];
+  const folders = ['assets/backgrounds','assets/gifs'];
+  const assets = [];
 
-function start(){ 
-  loadingOverlay.style.display='none'; 
-  renderState('main'); 
+  for (const folder of folders) {
+    for (let i=0;i<20;i++){
+      for (const ext of exts) assets.push(`${folder}/${i}.${ext}`);
+    }
+  }
+
+  const unique = [...new Set(assets)];
+  let loaded = 0;
+  return new Promise(resolve=>{
+    if(unique.length===0) resolve();
+    unique.forEach(src=>{
+      const img = new Image();
+      img.onload = img.onerror = ()=>{
+        if(++loaded === unique.length) resolve();
+      };
+      img.src = src;
+    });
+  });
 }
+
+(async ()=>{
+  await preloadAllAssets();
+  loadingOverlay.style.display='none';
+  renderState('main');
+})();
 
 function renderState(id){
   const s = states[id]; if(!s) return;
 
-  stage.classList.toggle('decorated', !!s.decorated);
   stageBase.src = s.bg;
+  stageBg.style.backgroundImage = s.backBg ? `url('${s.backBg}')` : 'none';
 
-  // show large back background only for main/0.1
-  if(s.backBg) stageBg.style.backgroundImage = `url('${s.backBg}')`;
-  else stageBg.style.backgroundImage = 'none';
-
+  // clear existing touch points and overlays
   centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
   centerContainer.querySelectorAll('.overlay-layer').forEach(e=>e.remove());
   activeOverlays.clear();
 
+  // create new touch points
   if(s.points){
     s.points.forEach(pt=>{
       const el=document.createElement('div');
       el.className='touch-point';
       el.style.left=pt.xPct+'%';
       el.style.top=pt.yPct+'%';
-      el.addEventListener('click',()=>{
-        if(pt.target){ 
-          navigateTo(pt.target); 
-        } else {
-          toggleOverlay(id, pt.id);
-        }
-      });
+      el.addEventListener('click',()=> pt.target ? navigateTo(pt.target) : toggleOverlay(id, pt.id));
       centerContainer.appendChild(el);
     });
   }
@@ -253,14 +261,16 @@ function renderState(id){
 
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId+'.overlay.'+pointId;
-  if(activeOverlays.has(overlayId)){
-    const img=document.getElementById(overlayId);
-    if(img){ img.remove(); activeOverlays.delete(overlayId); }
+  const existing = document.getElementById(overlayId);
+  if(existing){
+    existing.remove();
+    activeOverlays.delete(overlayId);
   } else {
     const img=document.createElement('img');
     img.id=overlayId;
     img.className='overlay-layer';
-    img.src='assets/gifs/'+pointId+'.webp';
+    // Restart animation each time by appending timestamp
+    img.src='assets/gifs/'+pointId+'.webp?'+Date.now();
     img.style.opacity=1;
     centerContainer.appendChild(img);
     activeOverlays.add(overlayId);
