@@ -5,8 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Interactive Kiosk</title>
 <style>
-html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-family: Arial, sans-serif; }
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+}
 
+/* --- Layout --- */
 .kiosk-viewport {
   position: fixed;
   inset: 0;
@@ -34,6 +41,7 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
   z-index: 2;
 }
 
+/* --- Backgrounds --- */
 .stage-bg {
   position: absolute;
   inset: 0;
@@ -54,8 +62,13 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
   -webkit-user-drag: none;
 }
 .base-image { z-index: 1; opacity: 1; }
-.overlay-layer { z-index: 2; pointer-events: none; transition: opacity 0.4s ease-in-out; }
+.overlay-layer {
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 0.4s ease-in-out;
+}
 
+/* --- Touch Points --- */
 .touch-point {
   position: absolute;
   width: 15%;
@@ -71,6 +84,7 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
   pointer-events: auto;
 }
 
+/* --- Back Button --- */
 .back-button {
   position: absolute;
   top: 20px;
@@ -89,39 +103,53 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
 }
 .back-button.hidden { display: none; }
 
-/* --- Updated loading overlay --- */
+/* --- Loading Overlay --- */
 #loadingOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.7); /* semi-transparent black */
-  color: red;
+  background: #000;
+  color: #fff;
   display:flex;
   flex-direction: column;
   align-items:center;
   justify-content:center;
-  font-size:22px;
+  font-size:20px;
   z-index: 200;
-  backdrop-filter: blur(8px); /* soft blur */
 }
+
 .loader {
-  margin-top: 20px;
-  border: 6px solid rgba(255,0,0,0.3);
-  border-top: 6px solid red;
-  border-radius: 50%;
   width: 60px;
   height: 60px;
+  border: 6px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
   animation: spin 1s linear infinite;
+  margin-bottom: 12px;
 }
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  to { transform: rotate(360deg); }
 }
+
+/* Decorative bars for detailed screens */
+.stage.decorated::before, .stage.decorated::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-image: url('assets/backgrounds/sidebar.jpg');
+  z-index: 1;
+}
+.stage.decorated::before { left: 0; }
+.stage.decorated::after { right: 0; }
 </style>
 </head>
 <body>
 <div id="loadingOverlay">
-  <div>Loading...</div>
   <div class="loader"></div>
+  <div>Loading…</div>
 </div>
 
 <div class="kiosk-viewport">
@@ -131,6 +159,7 @@ html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-f
     <div class="center-container" id="centerContainer">
       <img id="stageBase" class="base-image" src="" alt="base" draggable="false" />
     </div>
+
     <div id="backButton" class="back-button hidden">←</div>
   </div>
 </div>
@@ -140,6 +169,7 @@ const centerContainer = document.getElementById('centerContainer');
 const backButton = document.getElementById('backButton');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const stageBase = document.getElementById('stageBase');
+const stage = document.getElementById('stage');
 const stageBg = document.getElementById('stageBg');
 
 let currentState = 'main';
@@ -172,7 +202,7 @@ const states = {
       { id:'0.1.1.3', xPct:61.46, yPct:37.52 },
       { id:'kpi', xPct:82.86, yPct:26.09 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
   },
   '0.1.2': { 
     bg:'assets/gifs/0.1.2.jpg', 
@@ -182,7 +212,7 @@ const states = {
       { id:'0.1.2.3', xPct:63.74, yPct:24.01 },
       { id:'kpi', xPct:11.52, yPct:11.74 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
   },
   '0.1.3': { 
     bg:'assets/gifs/0.1.3.jpg', 
@@ -192,61 +222,75 @@ const states = {
       { id:'0.1.3.3', xPct:66.72, yPct:57.27 },
       { id:'kpi', xPct:13.51, yPct:11.74 }
     ],
-    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1'
+    autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
   }
 };
 
-// preload all assets recursively (jpg/png/webp/gif)
+/* ------------------ FULL PRELOAD ------------------ */
 async function preloadAllAssets() {
-  const exts = ['jpg','jpeg','png','webp','gif'];
-  const folders = ['assets/backgrounds','assets/gifs'];
-  const assets = [];
+  const knownFiles = [
+    'backgrounds/0.0.jpg',
+    'backgrounds/0.1.jpg',
+    'backgrounds/sidebar.jpg',
+    'backgrounds/backback0.jpg',
+    'backgrounds/backback1.jpg',
+    'gifs/touch.gif',
+    'gifs/0.1.1.1.webp','gifs/0.1.1.2.webp','gifs/0.1.1.3.webp','gifs/kpi.webp',
+    'gifs/0.1.2.1.webp','gifs/0.1.2.2.webp','gifs/0.1.2.3.webp','gifs/0.1.2.kpi.webp',
+    'gifs/0.1.3.1.webp','gifs/0.1.3.2.webp','gifs/0.1.3.3.webp','gifs/0.1.3.kpi.webp'
+  ];
 
-  for (const folder of folders) {
-    for (let i=0;i<20;i++){
-      for (const ext of exts) assets.push(`${folder}/${i}.${ext}`);
-    }
-  }
-
-  const unique = [...new Set(assets)];
+  const allAssets = knownFiles.map(f => 'assets/' + f);
   let loaded = 0;
-  return new Promise(resolve=>{
-    if(unique.length===0) resolve();
-    unique.forEach(src=>{
+  const total = allAssets.length;
+
+  return new Promise(resolve => {
+    allAssets.forEach(src => {
       const img = new Image();
-      img.onload = img.onerror = ()=>{
-        if(++loaded === unique.length) resolve();
-      };
       img.src = src;
+      img.onload = img.onerror = () => {
+        if (++loaded === total) resolve();
+      };
     });
   });
 }
 
-(async ()=>{
+/* ------------------ START APP ------------------ */
+async function startPreloading() {
   await preloadAllAssets();
-  loadingOverlay.style.display='none';
+  loadingOverlay.style.display = 'none';
   renderState('main');
-})();
+}
+startPreloading();
 
+/* ------------------ RENDER ------------------ */
 function renderState(id){
-  const s = states[id]; if(!s) return;
+  const s = states[id];
+  if(!s) return;
 
+  stage.classList.toggle('decorated', !!s.decorated);
   stageBase.src = s.bg;
-  stageBg.style.backgroundImage = s.backBg ? `url('${s.backBg}')` : 'none';
 
-  // clear existing touch points and overlays
+  if(s.backBg) stageBg.style.backgroundImage = `url('${s.backBg}')`;
+  else stageBg.style.backgroundImage = 'none';
+
   centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
   centerContainer.querySelectorAll('.overlay-layer').forEach(e=>e.remove());
   activeOverlays.clear();
 
-  // create new touch points
   if(s.points){
     s.points.forEach(pt=>{
       const el=document.createElement('div');
       el.className='touch-point';
       el.style.left=pt.xPct+'%';
       el.style.top=pt.yPct+'%';
-      el.addEventListener('click',()=> pt.target ? navigateTo(pt.target) : toggleOverlay(id, pt.id));
+      el.addEventListener('click',()=>{
+        if(pt.target){ 
+          navigateTo(pt.target); 
+        } else {
+          toggleOverlay(id, pt.id);
+        }
+      });
       centerContainer.appendChild(el);
     });
   }
@@ -259,18 +303,17 @@ function renderState(id){
   currentState = id;
 }
 
+/* ------------------ TOGGLE OVERLAY ------------------ */
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId+'.overlay.'+pointId;
-  const existing = document.getElementById(overlayId);
-  if(existing){
-    existing.remove();
-    activeOverlays.delete(overlayId);
+  if(activeOverlays.has(overlayId)){
+    const img=document.getElementById(overlayId);
+    if(img){ img.remove(); activeOverlays.delete(overlayId); }
   } else {
     const img=document.createElement('img');
     img.id=overlayId;
     img.className='overlay-layer';
-    // Restart animation each time by appending timestamp
-    img.src='assets/gifs/'+pointId+'.webp?'+Date.now();
+    img.src='assets/gifs/'+pointId+'.webp';
     img.style.opacity=1;
     centerContainer.appendChild(img);
     activeOverlays.add(overlayId);
@@ -278,6 +321,7 @@ function toggleOverlay(parentId, pointId){
   resetAutoReturn();
 }
 
+/* ------------------ AUTO RETURN ------------------ */
 function resetAutoReturn(){
   const s = states[currentState];
   if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
@@ -286,6 +330,7 @@ function resetAutoReturn(){
   }
 }
 
+/* ------------------ NAVIGATION ------------------ */
 function navigateTo(id){ renderState(id); }
 
 backButton.addEventListener('click',()=>{
