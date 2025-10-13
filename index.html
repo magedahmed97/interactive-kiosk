@@ -1,346 +1,591 @@
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Interactive Kiosk</title>
-  <style>
-  html, body {
-    height: 100%;
-    margin: 0;
-    background: #000;
-    overflow: hidden;
-    font-family: Arial, sans-serif;
-  }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Interactive Kiosk</title>
+<style>
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
-  /* --- Layout --- */
-  .kiosk-viewport {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #000;
-  }
+/* --- Orientation Warning --- */
+#orientationWarning {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.95);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  text-align: center;
+  padding: 20px;
+}
+#orientationWarning.hidden { display: none; }
+#orientationWarning h2 {
+  font-size: 28px;
+  margin-bottom: 20px;
+}
+#orientationWarning p {
+  font-size: 18px;
+  margin-bottom: 30px;
+  max-width: 500px;
+  line-height: 1.5;
+}
+#orientationWarning .rotate-icon {
+  font-size: 60px;
+  margin-bottom: 20px;
+  animation: rotatePhone 2s ease-in-out infinite;
+}
+@keyframes rotatePhone {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+#orientationWarning button {
+  padding: 15px 40px;
+  font-size: 18px;
+  background: #fff;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+#orientationWarning button:hover {
+  background: #ddd;
+}
 
-  .stage {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-  }
+/* --- Fullscreen assets --- */
+.fullscreen-bg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
 
-  .center-container {
-    position: relative;
-    width: min(100vw, calc(100vh * 16 / 9));
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    z-index: 2;
-  }
+/* --- Center 16:9 area --- */
+.center-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, calc(100vh * 16 / 9));
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  z-index: 4;
+  background: transparent;
+}
 
-  /* --- Backgrounds --- */
-  .stage-bg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    background-size: cover;
-    background-position: center;
-    z-index: 0;
-  }
+/* --- Sidebars --- */
+.sidebar {
+  position: absolute;
+  top: 0;
+  width: 120vw;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  z-index: 0;
+}
+.sidebar.left { left: 0; }
+.sidebar.right { right: 0; }
 
-  .base-image, .overlay-layer {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    user-select: none;
-    -webkit-user-drag: none;
-  }
-  .base-image { z-index: 1; opacity: 1; }
-  .overlay-layer {
-    z-index: 2;
-    pointer-events: none;
-    transition: opacity 0.4s ease-in-out;
-  }
+/* --- Touch Points --- */
+.touch-point {
+  position: absolute;
+  width: 15%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background-image: url('assets/gifs/touch.gif');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  cursor: pointer;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  transition: opacity 0.3s ease;
+}
+.touch-point.hidden-point {
+  opacity: 0;
+  pointer-events: none;
+}
 
-  /* --- Touch Points --- */
-  .touch-point {
-    position: absolute;
-    width: 15%;
-    aspect-ratio: 1;
-    border-radius: 50%;
-    background-image: url('assets/gifs/touch.gif');
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    cursor: pointer;
-    z-index: 3;
-    transform: translate(-50%, -50%);
-    pointer-events: auto;
-  }
+/* --- Overlays --- */
+.overlay-layer, .overlay-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 6;
+  pointer-events: none;
+  transition: opacity 0.4s ease-in-out;
+}
 
-  /* --- Back Button --- */
-  .back-button {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    width: 70px;
-    height: 70px;
-    border-radius: 10px;
-    background: rgba(0,0,0,0.6);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 34px;
-    cursor: pointer;
-    z-index: 10;
-  }
-  .back-button.hidden { display: none; }
+/* --- Back Button --- */
+.back-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 70px;
+  height: 70px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  cursor: pointer;
+  z-index: 10;
+  transition: opacity 0.3s ease;
+}
+.back-button.hidden { display: none; }
 
-  /* --- Loading Overlay --- */
-  #loadingOverlay {
-    position: fixed;
-    inset: 0;
-    background: #000;
-    color: #fff;
-    display:flex;
-    flex-direction: column;
-    align-items:center;
-    justify-content:center;
-    font-size:20px;
-    z-index: 200;
-  }
+/* --- KPI Back Button --- */
+.kpi-back-button {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  width: 80px;
+  height: 80px;
+  background: rgba(255,255,255,0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  cursor: pointer;
+  z-index: 8;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: all 0.3s ease;
+}
+.kpi-back-button:hover {
+  transform: scale(1.1);
+  background: rgba(255,255,255,1);
+}
 
-  .loader {
-    width: 60px;
-    height: 60px;
-    border: 6px solid rgba(255,255,255,0.3);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 12px;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+/* --- Loading Overlay --- */
+#loadingOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  z-index: 200;
+  backdrop-filter: blur(4px);
+}
+.loader {
+  width: 60px;
+  height: 60px;
+  border: 6px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<!-- Orientation Warning -->
+<div id="orientationWarning">
+  <div class="rotate-icon">📱 ↻</div>
+  <h2>Best Experience in Landscape</h2>
+  <p>For the best viewing experience, please rotate your device to landscape orientation.</p>
+  <button id="continueBtn">Continue</button>
+</div>
 
-  /* Decorative bars for detailed screens */
-  .stage.decorated::before, .stage.decorated::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    width: 50%;
-    height: 100%;
-    background-size: cover;
-    background-position: center;
-    background-image: url('assets/backgrounds/sidebar.jpg');
-    z-index: 1;
-  }
-  .stage.decorated::before { left: 0; }
-  .stage.decorated::after { right: 0; }
-  </style>
-  </head>
-  <body>
-  <div id="loadingOverlay">
-    <div class="loader"></div>
-    <div>Loading…</div>
+<div id="loadingOverlay">
+  <div class="loader"></div>
+  <div>Loading…</div>
+</div>
+
+<div class="kiosk-viewport">
+  <div class="stage" id="stage">
+    <!-- Fullscreen static image -->
+    <img id="stageBase" class="fullscreen-bg" src="" alt="base" />
+
+    <!-- Fullscreen video -->
+    <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline></video>
+
+    <!-- 16:9 interactive area -->
+    <div class="center-container" id="centerContainer"></div>
+
+    <!-- Back button -->
+    <div id="backButton" class="back-button hidden">←</div>
   </div>
+</div>
 
-  <div class="kiosk-viewport">
-    <div class="stage" id="stage">
-      <div id="stageBg" class="stage-bg"></div>
+<script>
+const centerContainer = document.getElementById('centerContainer');
+const backButton = document.getElementById('backButton');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const stageBase = document.getElementById('stageBase');
+const videoBg = document.getElementById('videoBg');
+const stage = document.getElementById('stage');
+const orientationWarning = document.getElementById('orientationWarning');
+const continueBtn = document.getElementById('continueBtn');
 
-      <div class="center-container" id="centerContainer">
-        <img id="stageBase" class="base-image" src="" alt="base" draggable="false" />
-      </div>
+let currentState = 'main';
+let autoReturnTimeout = null;
+const activeOverlays = new Set();
+const touchedPoints = {}; // Track which points have been touched per state
 
-      <div id="backButton" class="back-button hidden">←</div>
-    </div>
-  </div>
+// Dismiss orientation warning
+continueBtn.addEventListener('click', () => {
+  orientationWarning.classList.add('hidden');
+});
 
-  <script>
-  const centerContainer = document.getElementById('centerContainer');
-  const backButton = document.getElementById('backButton');
-  const loadingOverlay = document.getElementById('loadingOverlay');
-  const stageBase = document.getElementById('stageBase');
-  const stage = document.getElementById('stage');
-  const stageBg = document.getElementById('stageBg');
+// Transition video element
+const transitionVideo = document.createElement('video');
+transitionVideo.src = 'assets/backgrounds/0.0.mp4';
+transitionVideo.preload = 'auto';
+transitionVideo.muted = true;
+transitionVideo.playsInline = true;
+Object.assign(transitionVideo.style, {
+  position: 'absolute', top: 0, left: 0,
+  width: '100%', height: '100%',
+  objectFit: 'cover',
+  zIndex: 3,
+  display: 'none',
+  background: '#000'
+});
+document.body.appendChild(transitionVideo);
 
-  let currentState = 'main';
-  let autoReturnTimeout = null;
-  const activeOverlays = new Set();
+const states = {
+  'main': { 
+    bg: 'assets/backgrounds/0.0.jpg', 
+    points: [ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ],
+    backTarget: null
+  },
+  '0.1': { 
+    video: 'assets/backgrounds/0.1.mp4',
+    points: [
+      { id:'0.1.1', xPct:13, yPct:58, target:'0.1.1' },
+      { id:'0.1.2', xPct:49, yPct:24, target:'0.1.2' },
+      { id:'0.1.3', xPct:80, yPct:42, target:'0.1.3' }
+    ],
+    backTarget:'main'
+  },
+  '0.1.1': { 
+    video:'assets/gifs/0.1.1.mp4',
+    withSidebar:true,
+    points:[
+      { id:'0.1.1.1', xPct:22, yPct:34 },
+      { id:'0.1.1.2', xPct:48.5, yPct:55 },
+      { id:'0.1.1.3', xPct:66.5, yPct:43.5 },
+      { id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ],
+    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  },
+  '0.1.2': { 
+    video:'assets/gifs/0.1.2.mp4',
+    withSidebar:true,
+    points:[
+      { id:'0.1.2.1', xPct:66.3, yPct:43.5 },
+      { id:'0.1.2.2', xPct:50.3, yPct:24.7 },
+      { id:'0.1.2.3', xPct:30, yPct:45.8 },
+      { id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ],
+    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  },
+  '0.1.3': { 
+    video:'assets/gifs/0.1.3.mp4',
+    withSidebar:true,
+    points:[
+      { id:'0.1.3.1', xPct:59.7, yPct:22.5 },
+      { id:'0.1.3.2', xPct:44.7, yPct:58.5 },
+      { id:'0.1.3.3', xPct:71.5, yPct:58 },
+      { id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ],
+    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  }
+};
 
-  const states = {
-    'main': { 
-      bg: 'assets/backgrounds/0.0.jpg', 
-      points: [ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ],
-      decorated: false,
-      backBg: 'assets/backgrounds/backback0.jpg'
-    },
-    '0.1': { 
-      bg: 'assets/backgrounds/0.1.jpg', 
-      points: [
-        { id:'0.1.1', xPct:21.7, yPct:60.7, target:'0.1.1' },
-        { id:'0.1.2', xPct:48.54, yPct:26.2, target:'0.1.2' },
-        { id:'0.1.3', xPct:72.75, yPct:39.5, target:'0.1.3' }
-      ],
-      backTarget:'main',
-      decorated: false,
-      backBg: 'assets/backgrounds/backback1.jpg'
-    },
-    '0.1.1': { 
-      bg:'assets/gifs/0.1.1.jpg', 
-      points:[
-        { id:'0.1.1.1', xPct:17.1, yPct:28.6 },
-        { id:'0.1.1.2', xPct:42.39, yPct:49.68 },
-        { id:'0.1.1.3', xPct:61.46, yPct:37.52 },
-        { id:'0.1.1.1.kpi', xPct:82.86, yPct:26.09 }
-      ],
-      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-    },
-    '0.1.2': { 
-      bg:'assets/gifs/0.1.2.jpg', 
-      points:[
-        { id:'0.1.2.1', xPct:23.8, yPct:48.2 },
-        { id:'0.1.2.2', xPct:44.38, yPct:36.27 },
-        { id:'0.1.2.3', xPct:63.74, yPct:24.01 },
-        { id:'0.1.1.2.kpi', xPct:11.52, yPct:11.74 }
-      ],
-      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-    },
-    '0.1.3': { 
-      bg:'assets/gifs/0.1.3.jpg', 
-      points:[
-        { id:'0.1.3.1', xPct:49.53, yPct:19.85 },
-        { id:'0.1.3.2', xPct:37.6, yPct:57.9 },
-        { id:'0.1.3.3', xPct:66.72, yPct:57.27 },
-        { id:'0.1.1.3.kpi', xPct:13.51, yPct:11.74 }
-      ],
-      autoReturn:true, returnTo:'0.1', timer:15000, backTarget:'0.1', decorated:true
-    }
-  };
-
-  /* ------------------ FULL PRELOAD ------------------ */
-  async function preloadAllAssets() {
-    const knownFiles = [
-      'backgrounds/0.0.jpg',
-      'backgrounds/0.1.jpg',
-      'backgrounds/sidebar.jpg',
-      'backgrounds/backback0.jpg',
-      'backgrounds/backback1.jpg',
-      'gifs/touch.gif',
-      'gifs/0.1.1.1.webp','gifs/0.1.1.2.webp','gifs/0.1.1.3.webp','gifs/0.1.1.kpi.webp',
-      'gifs/0.1.2.1.webp','gifs/0.1.2.2.webp','gifs/0.1.2.3.webp','gifs/0.1.2.kpi.webp',
-      'gifs/0.1.3.1.webp','gifs/0.1.3.2.webp','gifs/0.1.3.3.webp','gifs/0.1.3.kpi.webp'
-    ];
-
-    const allAssets = knownFiles.map(f => 'assets/' + f);
-    let loaded = 0;
-    const total = allAssets.length;
-
-    return new Promise(resolve => {
-      allAssets.forEach(src => {
+/* ------------------ PRELOAD ASSETS ------------------ */
+async function preloadAllAssets() {
+  const assetList = [
+    'assets/backgrounds/0.0.jpg','assets/backgrounds/0.0.mp4',
+    'assets/backgrounds/0.1.mp4',
+    'assets/gifs/0.1.1.mp4','assets/gifs/0.1.2.mp4','assets/gifs/0.1.3.mp4',
+    'assets/backgrounds/sidebar.jpg',
+    'assets/gifs/kpi.mp4',
+    'assets/gifs/touch.gif'
+  ];
+  let loaded = 0, total = assetList.length;
+  return new Promise(resolve => {
+    assetList.forEach(src => {
+      const ext = src.split('.').pop().toLowerCase();
+      if(['jpg','jpeg','png','webp','gif'].includes(ext)){
         const img = new Image();
         img.src = src;
-        img.onload = img.onerror = () => {
-          if (++loaded === total) resolve();
+        img.onload = img.onerror = () => { 
+          loaded++;
+          if(loaded === total) resolve(); 
         };
-      });
+      } else if(['mp4','mov','webm'].includes(ext)){
+        const v = document.createElement('video');
+        v.src = src;
+        v.preload = 'auto';
+        v.oncanplaythrough = v.onerror = () => { 
+          loaded++;
+          if(loaded === total) resolve(); 
+        };
+      } else {
+        loaded++;
+        if(loaded === total) resolve();
+      }
+    });
+  });
+}
+
+/* ------------------ INITIALIZE ------------------ */
+async function startPreloading() {
+  await preloadAllAssets();
+  loadingOverlay.style.display = 'none';
+  renderState('main');
+}
+startPreloading();
+
+/* ------------------ RENDER STATE ------------------ */
+function renderState(id){
+  const s = states[id];
+  if(!s) return;
+
+  // Initialize touched points tracking for this state
+  if(!touchedPoints[id]) {
+    touchedPoints[id] = new Set();
+  }
+
+  // Clear videos
+  videoBg.pause(); 
+  videoBg.removeAttribute('src');
+  videoBg.load();
+  stageBase.src = '';
+
+  // Remove old sidebars
+  document.querySelectorAll('.sidebar').forEach(e=>e.remove());
+
+  // Set background
+  if(s.video){
+    if(s.withSidebar){
+      const leftSidebar = document.createElement('div');
+      leftSidebar.className = 'sidebar left';
+      leftSidebar.style.backgroundImage = "url('assets/backgrounds/sidebar.jpg')";
+      const rightSidebar = document.createElement('div');
+      rightSidebar.className = 'sidebar right';
+      rightSidebar.style.backgroundImage = "url('assets/backgrounds/sidebar.jpg')";
+      stage.insertBefore(leftSidebar, stage.firstChild);
+      stage.insertBefore(rightSidebar, stage.firstChild);
+
+      videoBg.src = s.video;
+      videoBg.style.objectFit = 'contain';
+      videoBg.oncanplaythrough = () => videoBg.play();
+    } else {
+      videoBg.src = s.video;
+      videoBg.style.objectFit = 'cover';
+      videoBg.oncanplaythrough = () => videoBg.play();
+    }
+    stageBase.style.display = 'none';
+  } else if(s.bg){
+    stageBase.src = s.bg;
+    stageBase.style.display = 'block';
+    stageBase.onerror = () => console.error('Failed to load:', stageBase.src);
+  }
+
+  // Clear old points/overlays
+  centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
+  centerContainer.querySelectorAll('.overlay-layer, .overlay-video').forEach(e=>e.remove());
+  centerContainer.querySelectorAll('.kpi-back-button').forEach(e=>e.remove());
+  activeOverlays.clear();
+
+  if(s.points){
+    s.points.forEach(pt=>{
+      const el=document.createElement('div');
+      el.className='touch-point';
+      el.style.left=pt.xPct+'%';
+      el.style.top=pt.yPct+'%';
+      el.setAttribute('data-point-id', pt.id);
+      
+      // Check if this is a KPI point that requires all other points to be touched
+      if(pt.type === 'kpi' && pt.requireAll) {
+        const regularPoints = s.points.filter(p => p.type !== 'kpi');
+        const allTouched = regularPoints.every(p => touchedPoints[id].has(p.id));
+        if(!allTouched) {
+          el.classList.add('hidden-point');
+        }
+      }
+      
+      if(id==='main' && pt.target==='0.1'){
+        el.addEventListener('click', playTransitionAndSwitch);
+      } else if(pt.type === 'kpi') {
+        el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
+      } else {
+        el.addEventListener('click',()=>{
+          // Mark this point as touched
+          touchedPoints[id].add(pt.id);
+          
+          if(pt.target) {
+            navigateTo(pt.target);
+          } else {
+            toggleOverlay(id, pt.id);
+            // Check if all regular points have been touched to reveal KPI
+            checkAndRevealKpi(id);
+          }
+        });
+      }
+      centerContainer.appendChild(el);
     });
   }
 
-  /* ------------------ START APP ------------------ */
-  async function startPreloading() {
-    await preloadAllAssets();
-    loadingOverlay.style.display = 'none';
-    renderState('main');
-  }
-  startPreloading();
-
-  /* ------------------ RENDER ------------------ */
-  function renderState(id){
-    const s = states[id];
-    if(!s) return;
-
-    stage.classList.toggle('decorated', !!s.decorated);
-    stageBase.src = s.bg;
-
-    if(s.backBg) stageBg.style.backgroundImage = `url('${s.backBg}')`;
-    else stageBg.style.backgroundImage = 'none';
-
-    centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
-    centerContainer.querySelectorAll('.overlay-layer').forEach(e=>e.remove());
-    activeOverlays.clear();
-
-    if(s.points){
-      s.points.forEach(pt=>{
-        const el=document.createElement('div');
-        el.className='touch-point';
-        el.style.left=pt.xPct+'%';
-        el.style.top=pt.yPct+'%';
-        el.addEventListener('click',()=>{
-          if(pt.target){ 
-            navigateTo(pt.target); 
-          } else {
-            toggleOverlay(id, pt.id);
-          }
-        });
-        centerContainer.appendChild(el);
-      });
-    }
-
-    backButton.classList.toggle('hidden',!s.backTarget);
-    if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-    if(s.autoReturn && s.returnTo){
-      autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
-    }
-    currentState = id;
+  backButton.classList.toggle('hidden', !s.backTarget);
+  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
+  if(s.autoReturn && s.returnTo){
+    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
   }
 
-  /* ------------------ TOGGLE OVERLAY ------------------ */
-  function toggleOverlay(parentId, pointId){
-    const overlayId = parentId+'.overlay.'+pointId;
-    if(activeOverlays.has(overlayId)){
-      const img=document.getElementById(overlayId);
-      if(img){ img.remove(); activeOverlays.delete(overlayId); }
-    } else {
-      const img=document.createElement('img');
-      img.id=overlayId;
-      img.className='overlay-layer';
-      img.src='assets/gifs/'+pointId+'.webp';
-      img.style.opacity=1;
-      centerContainer.appendChild(img);
-      activeOverlays.add(overlayId);
+  currentState = id;
+}
+
+/* ------------------ CHECK AND REVEAL KPI ------------------ */
+function checkAndRevealKpi(stateId) {
+  const s = states[stateId];
+  if(!s || !s.points) return;
+  
+  const regularPoints = s.points.filter(p => p.type !== 'kpi');
+  const allTouched = regularPoints.every(p => touchedPoints[stateId].has(p.id));
+  
+  if(allTouched) {
+    // Reveal KPI point
+    const kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
+    if(kpiPoint) {
+      kpiPoint.classList.remove('hidden-point');
     }
+  }
+}
+
+/* ------------------ KPI VIDEO OVERLAY ------------------ */
+function showKpiOverlay(parentId, pointId){
+  const overlayId = parentId + '.overlay.' + pointId;
+  
+  // Remove any existing KPI overlay
+  centerContainer.querySelectorAll('.overlay-video').forEach(e=>e.remove());
+  centerContainer.querySelectorAll('.kpi-back-button').forEach(e=>e.remove());
+  
+  const vid = document.createElement('video');
+  vid.id = overlayId;
+  vid.className = 'overlay-video';
+  vid.src = 'assets/gifs/kpi.mp4?v=' + Date.now();
+  vid.autoplay = true;
+  vid.loop = true;
+  vid.muted = true;
+  vid.playsInline = true;
+  centerContainer.appendChild(vid);
+  
+  // Add back button for KPI
+  const kpiBackBtn = document.createElement('div');
+  kpiBackBtn.className = 'kpi-back-button';
+  kpiBackBtn.innerHTML = '←';
+  kpiBackBtn.addEventListener('click', () => {
+    vid.remove();
+    kpiBackBtn.remove();
     resetAutoReturn();
-  }
-
-  /* ------------------ AUTO RETURN ------------------ */
-  function resetAutoReturn(){
-    const s = states[currentState];
-    if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-    if(s && s.autoReturn && s.returnTo){
-      autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
-    }
-  }
-
-  /* ------------------ NAVIGATION ------------------ */
-  function navigateTo(id){ renderState(id); }
-
-  backButton.addEventListener('click',()=>{
-    const s = states[currentState];
-    if(s && s.backTarget) navigateTo(s.backTarget);
   });
+  centerContainer.appendChild(kpiBackBtn);
+  
+  activeOverlays.add(overlayId);
+  resetAutoReturn();
+}
 
-  document.addEventListener('contextmenu', e=>e.preventDefault());
-  document.addEventListener('selectstart', e=>e.preventDefault());
-  window.addEventListener('resize', ()=>renderState(currentState));
-  </script>
-  </body>
-  </html>
+/* ------------------ TOGGLE IMAGE OVERLAY ------------------ */
+function toggleOverlay(parentId, pointId){
+  const overlayId = parentId+'.overlay.'+pointId;
+  const existing=document.getElementById(overlayId);
+
+  if(existing){
+    existing.remove();
+    activeOverlays.delete(overlayId);
+  } else {
+    const img=document.createElement('img');
+    img.id=overlayId;
+    img.className='overlay-layer';
+    img.src='assets/gifs/'+pointId+'.webp?v='+Date.now();
+    img.style.opacity=1;
+    img.onerror = () => console.error('Failed to load overlay:', img.src);
+    centerContainer.appendChild(img);
+    activeOverlays.add(overlayId);
+  }
+  resetAutoReturn();
+}
+
+/* ------------------ NAVIGATION ------------------ */
+function navigateTo(id){ 
+  // Clear touched points when moving to a new state
+  if(id !== currentState && touchedPoints[id]) {
+    touchedPoints[id].clear();
+  }
+  renderState(id); 
+}
+
+backButton.addEventListener('click', ()=>{ 
+  const s = states[currentState];
+  if(s && s.backTarget) navigateTo(s.backTarget);
+});
+
+/* ------------------ TRANSITION ------------------ */
+function playTransitionAndSwitch(){
+  // Hide the main touch point immediately
+  const mainPoint = centerContainer.querySelector('.touch-point');
+  if(mainPoint) {
+    mainPoint.classList.add('hidden-point');
+  }
+  
+  // Set black background to prevent flickering
+  stage.style.background = '#000';
+  
+  transitionVideo.style.display = 'block';
+  transitionVideo.currentTime = 0;
+  transitionVideo.play();
+  
+  transitionVideo.onended = () => {
+    transitionVideo.style.display = 'none';
+    // Preload next video before switching
+    const nextVideo = document.createElement('video');
+    nextVideo.src = 'assets/backgrounds/0.1.mp4';
+    nextVideo.preload = 'auto';
+    nextVideo.oncanplaythrough = () => {
+      renderState('0.1');
+    };
+  };
+}
+
+function resetAutoReturn(){
+  const s = states[currentState];
+  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
+  if(s && s.autoReturn && s.returnTo){
+    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
+  }
+}
+
+document.addEventListener('contextmenu', e=>e.preventDefault());
+document.addEventListener('selectstart', e=>e.preventDefault());
+window.addEventListener('resize', ()=>renderState(currentState));
+</script>
+</body>
+</html>
