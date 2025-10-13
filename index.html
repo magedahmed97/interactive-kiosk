@@ -73,9 +73,6 @@ html, body {
   background: transparent;
 }
 
-/* When in portrait: let the center container expand to available width
-   and remove strict 16:9 if screen is narrow. This provides a usable
-   portrait layout instead of blocking rendering. */
 @media (orientation: portrait) {
   .center-container {
     width: calc(100vw - 24px);
@@ -173,7 +170,7 @@ html, body {
 }
 .kpi-back-button:hover { transform: scale(1.1); background: rgba(255,255,255,1); }
 
-/* --- Loading Overlay (keeps blocking only until assets load) --- */
+/* --- Loading Overlay --- */
 #loadingOverlay {
   position: fixed;
   inset: 0;
@@ -192,7 +189,7 @@ html, body {
 </style>
 </head>
 <body>
-<!-- Orientation Notice: non-blocking banner by default (will become a larger banner on user-demand) -->
+
 <div id="orientationWarning" class="hidden" role="status" aria-live="polite">
   <div class="rotate-icon">📱↻</div>
   <div class="msg">Rotate device for best experience. <button id="continueBtn">Continue</button></div>
@@ -205,16 +202,9 @@ html, body {
 
 <div class="kiosk-viewport">
   <div class="stage" id="stage">
-    <!-- Fullscreen static image -->
     <img id="stageBase" class="fullscreen-bg" src="" alt="base" />
-
-    <!-- Fullscreen video -->
     <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline></video>
-
-    <!-- 16:9 interactive area -->
     <div class="center-container" id="centerContainer"></div>
-
-    <!-- Back button -->
     <div id="backButton" class="back-button hidden">←</div>
   </div>
 </div>
@@ -232,45 +222,48 @@ const continueBtn = document.getElementById('continueBtn');
 let currentState = 'main';
 let autoReturnTimeout = null;
 const activeOverlays = new Set();
-const touchedPoints = {}; // Track which points have been touched per state
+const touchedPoints = {};
 
-// Persist user dismissal so the subtle banner doesn't reappear repeatedly
 function dismissOrientationHint(persist = true){
   orientationWarning.classList.add('hidden');
   if(persist) localStorage.setItem('orientationHintDismissed', '1');
 }
 continueBtn.addEventListener('click', ()=>dismissOrientationHint(true));
 
-/* ------------------ PRELOAD ASSETS ------------------ */
+/* ------------------ LAZY PRELOAD ASSETS ------------------ */
 async function preloadAllAssets(){
-  const assetList = [
-    'assets/backgrounds/0.0.jpg','assets/backgrounds/0.0.mp4',
+  const smallAssets = [
+    'assets/backgrounds/0.0.jpg',
+    'assets/gifs/touch.gif',
+    'assets/backgrounds/sidebar.jpg'
+  ];
+  const largeAssets = [
+    'assets/backgrounds/0.0.mp4',
     'assets/backgrounds/0.1.mp4',
     'assets/gifs/0.1.1.mp4','assets/gifs/0.1.2.mp4','assets/gifs/0.1.3.mp4',
-    'assets/backgrounds/sidebar.jpg',
-    'assets/gifs/kpi.mp4',
-    'assets/gifs/touch.gif'
+    'assets/gifs/kpi.mp4'
   ];
-  let loaded = 0, total = assetList.length;
-  return new Promise(resolve => {
-    assetList.forEach(src => {
+
+  await Promise.all(smallAssets.map(src => new Promise(resolve=>{
+    const ext = src.split('.').pop().toLowerCase();
+    if(['jpg','jpeg','png','webp','gif'].includes(ext)){
+      const img = new Image(); img.src = src; img.onload = img.onerror = resolve;
+    } else { resolve(); }
+  })));
+
+  // Lazy load large assets
+  setTimeout(() => {
+    largeAssets.forEach(src => {
       const ext = src.split('.').pop().toLowerCase();
-      if(['jpg','jpeg','png','webp','gif'].includes(ext)){
-        const img = new Image();
-        img.src = src;
-        img.onload = img.onerror = () => { loaded++; if(loaded === total) resolve(); };
-      } else if(['mp4','mov','webm'].includes(ext)){
-        const v = document.createElement('video');
-        v.src = src;
-        v.preload = 'auto';
-        // iOS may not fire canplaythrough until user gesture; fallback to onloadedmetadata
-        v.oncanplaythrough = v.onloadedmetadata = v.onerror = () => { loaded++; if(loaded === total) resolve(); };
-      } else { loaded++; if(loaded === total) resolve(); }
+      if(['mp4','mov','webm'].includes(ext)){
+        const v = document.createElement('video'); v.src = src; v.preload = 'auto';
+      } else if(['jpg','jpeg','png','webp','gif'].includes(ext)){
+        const img = new Image(); img.src = src;
+      }
     });
-  });
+  }, 2000);
 }
 
-/* ------------------ INITIALIZE ------------------ */
 async function startPreloading(){
   await preloadAllAssets();
   loadingOverlay.style.display = 'none';
@@ -278,241 +271,116 @@ async function startPreloading(){
 }
 startPreloading();
 
-/* ------------------ ORIENTATION HANDLING (graceful) ------------------ */
-// Helper: detect iOS
-function isIOS(){
-  return (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
-}
+/* ------------------ ORIENTATION HANDLING ------------------ */
+function isIOS(){ return (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)); }
 
-// Show a subtle non-blocking banner in portrait; don't hide the app content.
 function handleOrientationChange(m){
-  // If the user already dismissed hint, don't re-show
   const dismissed = localStorage.getItem('orientationHintDismissed');
-
-  if(m.matches){ // portrait
-    // On iOS we avoid blocking overlays entirely — show subtle hint unless dismissed
-    if(dismissed) {
-      orientationWarning.classList.add('hidden');
-    } else {
-      orientationWarning.classList.remove('hidden');
-    }
-  } else {
-    // landscape -> hide the hint
-    orientationWarning.classList.add('hidden');
-  }
+  if(m.matches){
+    if(dismissed){ orientationWarning.classList.add('hidden'); } 
+    else { orientationWarning.classList.remove('hidden'); }
+  } else { orientationWarning.classList.add('hidden'); }
 }
-
-// Use matchMedia to watch orientation and toggle a small hint; works on iOS and Android.
 const mq = window.matchMedia('(orientation: portrait)');
-if(typeof mq.addEventListener === 'function'){
-  mq.addEventListener('change', (ev)=>handleOrientationChange(ev));
-} else if(typeof mq.addListener === 'function'){
-  mq.addListener((ev)=>handleOrientationChange(ev));
-}
-// Run once on load
+if(typeof mq.addEventListener === 'function'){ mq.addEventListener('change', handleOrientationChange); } 
+else if(typeof mq.addListener === 'function'){ mq.addListener(handleOrientationChange); }
 handleOrientationChange(mq);
 
 /* ------------------ RENDER STATE ------------------ */
 const states = {
-  'main': { 
-    bg: 'assets/backgrounds/0.0.jpg', 
-    points: [ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ],
-    backTarget: null
-  },
-  '0.1': { 
-    video: 'assets/backgrounds/0.1.mp4',
-    points: [
-      { id:'0.1.1', xPct:13, yPct:58, target:'0.1.1' },
-      { id:'0.1.2', xPct:49, yPct:24, target:'0.1.2' },
-      { id:'0.1.3', xPct:80, yPct:42, target:'0.1.3' }
-    ],
-    backTarget:'main'
-  },
-  '0.1.1': { 
-    video:'assets/gifs/0.1.1.mp4',
-    withSidebar:true,
-    points:[
-      { id:'0.1.1.1', xPct:22, yPct:34 },
-      { id:'0.1.1.2', xPct:48.5, yPct:55 },
-      { id:'0.1.1.3', xPct:66.5, yPct:43.5 },
-      { id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
-  },
-  '0.1.2': { 
-    video:'assets/gifs/0.1.2.mp4',
-    withSidebar:true,
-    points:[
-      { id:'0.1.2.1', xPct:66.3, yPct:43.5 },
-      { id:'0.1.2.2', xPct:50.3, yPct:24.7 },
-      { id:'0.1.2.3', xPct:30, yPct:45.8 },
-      { id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
-  },
-  '0.1.3': { 
-    video:'assets/gifs/0.1.3.mp4',
-    withSidebar:true,
-    points:[
-      { id:'0.1.3.1', xPct:59.7, yPct:22.5 },
-      { id:'0.1.3.2', xPct:44.7, yPct:58.5 },
-      { id:'0.1.3.3', xPct:71.5, yPct:58 },
-      { id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ],
-    autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
-  }
+  'main': { bg:'assets/backgrounds/0.0.jpg', points:[ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ], backTarget:null },
+  '0.1': { video:'assets/backgrounds/0.1.mp4', points:[ { id:'0.1.1', xPct:13, yPct:58, target:'0.1.1' },{ id:'0.1.2', xPct:49, yPct:24, target:'0.1.2' },{ id:'0.1.3', xPct:80, yPct:42, target:'0.1.3' } ], backTarget:'main' },
+  '0.1.1': { video:'assets/gifs/0.1.1.mp4', withSidebar:true, points:[ { id:'0.1.1.1', xPct:22, yPct:34 },{ id:'0.1.1.2', xPct:48.5, yPct:55 },{ id:'0.1.1.3', xPct:66.5, yPct:43.5 },{ id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' },
+  '0.1.2': { video:'assets/gifs/0.1.2.mp4', withSidebar:true, points:[ { id:'0.1.2.1', xPct:66.3, yPct:43.5 },{ id:'0.1.2.2', xPct:50.3, yPct:24.7 },{ id:'0.1.2.3', xPct:30, yPct:45.8 },{ id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' },
+  '0.1.3': { video:'assets/gifs/0.1.3.mp4', withSidebar:true, points:[ { id:'0.1.3.1', xPct:59.7, yPct:22.5 },{ id:'0.1.3.2', xPct:44.7, yPct:58.5 },{ id:'0.1.3.3', xPct:71.5, yPct:58 },{ id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' }
 };
 
 function renderState(id){
-  const s = states[id];
-  if(!s) return;
-
-  if(!touchedPoints[id]) touchedPoints[id] = new Set();
-
-  // Clear videos
+  const s = states[id]; if(!s) return;
+  if(!touchedPoints[id]) touchedPoints[id]=new Set();
   try { videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); } catch(e){}
-  stageBase.src = '';
-
-  // Remove old sidebars
+  stageBase.src='';
   document.querySelectorAll('.sidebar').forEach(e=>e.remove());
-
-  // Set background
   if(s.video){
     if(s.withSidebar){
-      const leftSidebar = document.createElement('div');
-      leftSidebar.className = 'sidebar left';
-      leftSidebar.style.backgroundImage = "url('assets/backgrounds/sidebar.jpg')";
-      const rightSidebar = document.createElement('div');
-      rightSidebar.className = 'sidebar right';
-      rightSidebar.style.backgroundImage = "url('assets/backgrounds/sidebar.jpg')";
-      stage.insertBefore(leftSidebar, stage.firstChild);
-      stage.insertBefore(rightSidebar, stage.firstChild);
-
-      videoBg.src = s.video;
-      videoBg.style.objectFit = 'contain';
-      // try to play; on iOS this may require a user gesture; it will still load as source
-      videoBg.play().catch(()=>{});
-    } else {
-      videoBg.src = s.video;
-      videoBg.style.objectFit = 'cover';
-      videoBg.play().catch(()=>{});
-    }
-    stageBase.style.display = 'none';
-  } else if(s.bg){
-    stageBase.src = s.bg;
-    stageBase.style.display = 'block';
-    stageBase.onerror = () => console.error('Failed to load:', stageBase.src);
-  }
-
-  // Clear old points/overlays
-  centerContainer.querySelectorAll('.touch-point').forEach(e=>e.remove());
-  centerContainer.querySelectorAll('.overlay-layer, .overlay-video').forEach(e=>e.remove());
-  centerContainer.querySelectorAll('.kpi-back-button').forEach(e=>e.remove());
+      const leftSidebar = document.createElement('div'); leftSidebar.className='sidebar left'; leftSidebar.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
+      const rightSidebar = document.createElement('div'); rightSidebar.className='sidebar right'; rightSidebar.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
+      stage.insertBefore(leftSidebar, stage.firstChild); stage.insertBefore(rightSidebar, stage.firstChild);
+      videoBg.src=s.video; videoBg.style.objectFit='contain'; videoBg.play().catch(()=>{});
+    } else { videoBg.src=s.video; videoBg.style.objectFit='cover'; videoBg.play().catch(()=>{}); }
+    stageBase.style.display='none';
+  } else if(s.bg){ stageBase.src=s.bg; stageBase.style.display='block'; stageBase.onerror = ()=>console.error('Failed to load:', stageBase.src); }
+  centerContainer.querySelectorAll('.touch-point, .overlay-layer, .overlay-video, .kpi-back-button').forEach(e=>e.remove());
   activeOverlays.clear();
-
   if(s.points){
     s.points.forEach(pt=>{
-      const el=document.createElement('div');
-      el.className='touch-point';
-      el.style.left=pt.xPct+'%';
-      el.style.top=pt.yPct+'%';
-      el.setAttribute('data-point-id', pt.id);
-      if(pt.type === 'kpi' && pt.requireAll){
-        const regularPoints = s.points.filter(p => p.type !== 'kpi');
-        const allTouched = regularPoints.every(p => touchedPoints[id].has(p.id));
-        if(!allTouched) el.classList.add('hidden-point');
-      }
+      const el=document.createElement('div'); el.className='touch-point'; el.style.left=pt.xPct+'%'; el.style.top=pt.yPct+'%'; el.setAttribute('data-point-id', pt.id);
+      if(pt.type==='kpi' && pt.requireAll){ const allTouched=s.points.filter(p=>p.type!=='kpi').every(p=>touchedPoints[id].has(p.id)); if(!allTouched) el.classList.add('hidden-point'); }
       if(id==='main' && pt.target==='0.1') el.addEventListener('click', playTransitionAndSwitch);
-      else if(pt.type === 'kpi') el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
-      else el.addEventListener('click', ()=>{
-        touchedPoints[id].add(pt.id);
-        if(pt.target) navigateTo(pt.target);
-        else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
-      });
+      else if(pt.type==='kpi') el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
+      else el.addEventListener('click', ()=>{ touchedPoints[id].add(pt.id); if(pt.target) navigateTo(pt.target); else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); } });
       centerContainer.appendChild(el);
     });
   }
-
   backButton.classList.toggle('hidden', !s.backTarget);
   if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
   if(s.autoReturn && s.returnTo){ autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); }
-
   currentState = id;
 }
 
-/* ------------------ CHECK AND REVEAL KPI ------------------ */
 function checkAndRevealKpi(stateId){
   const s = states[stateId]; if(!s || !s.points) return;
-  const regularPoints = s.points.filter(p => p.type !== 'kpi');
-  const allTouched = regularPoints.every(p => touchedPoints[stateId].has(p.id));
-  if(allTouched){
-    const kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
-    if(kpiPoint) kpiPoint.classList.remove('hidden-point');
+  const regularPoints = s.points.filter(p => p.type!=='kpi'); if(regularPoints.every(p => touchedPoints[stateId].has(p.id))){
+    const kpiPoint = centerContainer.querySelector('.touch-point.hidden-point'); if(kpiPoint) kpiPoint.classList.remove('hidden-point');
   }
 }
 
-/* ------------------ KPI VIDEO OVERLAY ------------------ */
 function showKpiOverlay(parentId, pointId){
-  const overlayId = parentId + '.overlay.' + pointId;
-  centerContainer.querySelectorAll('.overlay-video').forEach(e=>e.remove());
-  centerContainer.querySelectorAll('.kpi-back-button').forEach(e=>e.remove());
-  const vid = document.createElement('video');
-  vid.id = overlayId; vid.className = 'overlay-video';
-  vid.src = 'assets/gifs/kpi.mp4?v=' + Date.now();
-  vid.autoplay = true; vid.loop = true; vid.muted = true; vid.playsInline = true;
+  const overlayId = parentId+'.overlay.'+pointId;
+  centerContainer.querySelectorAll('.overlay-video, .kpi-back-button').forEach(e=>e.remove());
+  const vid=document.createElement('video'); vid.id=overlayId; vid.className='overlay-video';
+  vid.src='assets/gifs/kpi.mp4?v='+Date.now(); vid.autoplay=true; vid.loop=true; vid.muted=true; vid.playsInline=true;
   centerContainer.appendChild(vid);
-  const kpiBackBtn = document.createElement('div');
-  kpiBackBtn.className = 'kpi-back-button'; kpiBackBtn.innerHTML = '←';
+  const kpiBackBtn = document.createElement('div'); kpiBackBtn.className='kpi-back-button'; kpiBackBtn.innerHTML='←';
   kpiBackBtn.addEventListener('click', ()=>{ vid.remove(); kpiBackBtn.remove(); resetAutoReturn(); });
   centerContainer.appendChild(kpiBackBtn);
   activeOverlays.add(overlayId);
   resetAutoReturn();
 }
 
-/* ------------------ TOGGLE IMAGE OVERLAY ------------------ */
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId+'.overlay.'+pointId;
   const existing=document.getElementById(overlayId);
   if(existing){ existing.remove(); activeOverlays.delete(overlayId); }
-  else { const img=document.createElement('img'); img.id=overlayId; img.className='overlay-layer'; img.src='assets/gifs/'+pointId+'.webp?v='+Date.now(); img.style.opacity=1; img.onerror = () => console.error('Failed to load overlay:', img.src); centerContainer.appendChild(img); activeOverlays.add(overlayId); }
+  else { const img=document.createElement('img'); img.id=overlayId; img.className='overlay-layer'; img.src='assets/gifs/'+pointId+'.webp?v='+Date.now(); centerContainer.appendChild(img); activeOverlays.add(overlayId); }
   resetAutoReturn();
 }
 
-/* ------------------ NAVIGATION ------------------ */
-function navigateTo(id){ if(id !== currentState && touchedPoints[id]) touchedPoints[id].clear(); renderState(id); }
+function navigateTo(id){ if(id!==currentState && touchedPoints[id]) touchedPoints[id].clear(); renderState(id); }
 backButton.addEventListener('click', ()=>{ const s = states[currentState]; if(s && s.backTarget) navigateTo(s.backTarget); });
 
-/* ------------------ TRANSITION ------------------ */
-const transitionVideo = document.createElement('video');
-transitionVideo.src = 'assets/backgrounds/0.0.mp4';
-transitionVideo.preload = 'auto';
-transitionVideo.muted = true; transitionVideo.playsInline = true;
-Object.assign(transitionVideo.style, { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, display: 'none', background: '#000' });
+const transitionVideo=document.createElement('video'); transitionVideo.src='assets/backgrounds/0.0.mp4'; transitionVideo.preload='auto'; transitionVideo.muted=true; transitionVideo.playsInline=true;
+Object.assign(transitionVideo.style,{position:'absolute',top:0,left:0,width:'100%',height:'100%',objectFit:'cover',zIndex:3,display:'none',background:'#000'});
 document.body.appendChild(transitionVideo);
 
 function playTransitionAndSwitch(){
-  const mainPoint = centerContainer.querySelector('.touch-point'); if(mainPoint) mainPoint.classList.add('hidden-point');
-  stage.style.background = '#000';
-  transitionVideo.style.display = 'block';
-  transitionVideo.currentTime = 0; transitionVideo.play().catch(()=>{});
-  transitionVideo.onended = ()=>{
-    transitionVideo.style.display = 'none';
-    const nextVideo = document.createElement('video'); nextVideo.src = 'assets/backgrounds/0.1.mp4'; nextVideo.preload = 'auto'; nextVideo.oncanplaythrough = ()=>{ renderState('0.1'); };
-  };
+  const mainPoint=centerContainer.querySelector('.touch-point'); if(mainPoint) mainPoint.classList.add('hidden-point');
+  transitionVideo.currentTime=0; transitionVideo.style.display='block'; transitionVideo.play();
+  transitionVideo.onended=()=>{ transitionVideo.style.display='none'; navigateTo('0.1'); };
 }
 
-function resetAutoReturn(){ const s = states[currentState]; if(autoReturnTimeout) clearTimeout(autoReturnTimeout); if(s && s.autoReturn && s.returnTo){ autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); } }
-
-document.addEventListener('contextmenu', e=>e.preventDefault());
-document.addEventListener('selectstart', e=>e.preventDefault());
-window.addEventListener('resize', ()=>renderState(currentState));
-
-// Basic touch-friendly heuristic: if iOS and page loaded in portrait, keep subtle hint; do not block rendering.
-if(isIOS()){
-  // ensure we never show a full-screen blocking warning on iOS
-  orientationWarning.style.maxWidth = '92%';
+function resetAutoReturn(){
+  const s=states[currentState]; if(s?.autoReturn && s.returnTo){ if(autoReturnTimeout) clearTimeout(autoReturnTimeout); autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); }
 }
 
+/* ------------------ SERVICE WORKER ------------------ */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js')
+      .then(reg=>console.log('SW registered:', reg.scope))
+      .catch(err=>console.error('SW failed:', err));
+  });
+}
 </script>
 </body>
 </html>
