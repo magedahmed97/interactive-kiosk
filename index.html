@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Interactive Kiosk</title>
+<title>Interactive Kiosk (orientation-friendly)</title>
 <style>
 html, body {
   height: 100%;
@@ -16,43 +16,31 @@ html, body {
   user-select: none;
 }
 
-/* --- Orientation Warning --- */
+/* --- Orientation Notice (default: subtle banner) --- */
 #orientationWarning {
   position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.95);
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  background: rgba(0,0,0,0.75);
   color: #fff;
   display: flex;
-  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
   z-index: 300;
   text-align: center;
-  padding: 20px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  max-width: calc(100% - 24px);
 }
 #orientationWarning.hidden { display: none; }
-#orientationWarning h2 {
-  font-size: 28px;
-  margin-bottom: 20px;
-}
-#orientationWarning p {
-  font-size: 18px;
-  margin-bottom: 30px;
-  max-width: 500px;
-  line-height: 1.5;
-}
-#orientationWarning .rotate-icon {
-  font-size: 60px;
-  margin-bottom: 20px;
-  animation: rotatePhone 2s ease-in-out infinite;
-}
-@keyframes rotatePhone {
-  0%, 100% { transform: rotate(0deg); }
-  50% { transform: rotate(90deg); }
-}
+#orientationWarning .rotate-icon { font-size: 18px; }
+#orientationWarning .msg { line-height: 1.2; }
 #orientationWarning button {
-  padding: 15px 40px;
-  font-size: 18px;
+  padding: 8px 12px;
+  font-size: 13px;
   background: #fff;
   color: #000;
   border: none;
@@ -60,9 +48,7 @@ html, body {
   cursor: pointer;
   font-weight: bold;
 }
-#orientationWarning button:hover {
-  background: #ddd;
-}
+#orientationWarning button:hover { background: #eee; }
 
 /* --- Fullscreen assets --- */
 .fullscreen-bg {
@@ -74,7 +60,7 @@ html, body {
   z-index: 0;
 }
 
-/* --- Center 16:9 area --- */
+/* --- Center area: responsive by default --- */
 .center-container {
   position: absolute;
   top: 50%;
@@ -85,6 +71,20 @@ html, body {
   overflow: hidden;
   z-index: 4;
   background: transparent;
+}
+
+/* When in portrait: let the center container expand to available width
+   and remove strict 16:9 if screen is narrow. This provides a usable
+   portrait layout instead of blocking rendering. */
+@media (orientation: portrait) {
+  .center-container {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 96px);
+    aspect-ratio: auto;
+    height: auto;
+  }
+  .sidebar { display: none; }
+  .back-button { left: 10px; top: 10px; }
 }
 
 /* --- Sidebars --- */
@@ -171,12 +171,9 @@ html, body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   transition: all 0.3s ease;
 }
-.kpi-back-button:hover {
-  transform: scale(1.1);
-  background: rgba(255,255,255,1);
-}
+.kpi-back-button:hover { transform: scale(1.1); background: rgba(255,255,255,1); }
 
-/* --- Loading Overlay --- */
+/* --- Loading Overlay (keeps blocking only until assets load) --- */
 #loadingOverlay {
   position: fixed;
   inset: 0;
@@ -190,25 +187,15 @@ html, body {
   z-index: 200;
   backdrop-filter: blur(4px);
 }
-.loader {
-  width: 60px;
-  height: 60px;
-  border: 6px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 12px;
-}
+.loader { width: 60px; height: 60px; border: 6px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-<!-- Orientation Warning -->
-<div id="orientationWarning">
-  <div class="rotate-icon">📱 ↻</div>
-  <h2>Best Experience in Landscape</h2>
-  <p>For the best viewing experience, please rotate your device to landscape orientation.</p>
-  <button id="continueBtn">Continue</button>
+<!-- Orientation Notice: non-blocking banner by default (will become a larger banner on user-demand) -->
+<div id="orientationWarning" class="hidden" role="status" aria-live="polite">
+  <div class="rotate-icon">📱↻</div>
+  <div class="msg">Rotate device for best experience. <button id="continueBtn">Continue</button></div>
 </div>
 
 <div id="loadingOverlay">
@@ -247,27 +234,85 @@ let autoReturnTimeout = null;
 const activeOverlays = new Set();
 const touchedPoints = {}; // Track which points have been touched per state
 
-// Dismiss orientation warning
-continueBtn.addEventListener('click', () => {
+// Persist user dismissal so the subtle banner doesn't reappear repeatedly
+function dismissOrientationHint(persist = true){
   orientationWarning.classList.add('hidden');
-});
+  if(persist) localStorage.setItem('orientationHintDismissed', '1');
+}
+continueBtn.addEventListener('click', ()=>dismissOrientationHint(true));
 
-// Transition video element
-const transitionVideo = document.createElement('video');
-transitionVideo.src = 'assets/backgrounds/0.0.mp4';
-transitionVideo.preload = 'auto';
-transitionVideo.muted = true;
-transitionVideo.playsInline = true;
-Object.assign(transitionVideo.style, {
-  position: 'absolute', top: 0, left: 0,
-  width: '100%', height: '100%',
-  objectFit: 'cover',
-  zIndex: 3,
-  display: 'none',
-  background: '#000'
-});
-document.body.appendChild(transitionVideo);
+/* ------------------ PRELOAD ASSETS ------------------ */
+async function preloadAllAssets(){
+  const assetList = [
+    'assets/backgrounds/0.0.jpg','assets/backgrounds/0.0.mp4',
+    'assets/backgrounds/0.1.mp4',
+    'assets/gifs/0.1.1.mp4','assets/gifs/0.1.2.mp4','assets/gifs/0.1.3.mp4',
+    'assets/backgrounds/sidebar.jpg',
+    'assets/gifs/kpi.mp4',
+    'assets/gifs/touch.gif'
+  ];
+  let loaded = 0, total = assetList.length;
+  return new Promise(resolve => {
+    assetList.forEach(src => {
+      const ext = src.split('.').pop().toLowerCase();
+      if(['jpg','jpeg','png','webp','gif'].includes(ext)){
+        const img = new Image();
+        img.src = src;
+        img.onload = img.onerror = () => { loaded++; if(loaded === total) resolve(); };
+      } else if(['mp4','mov','webm'].includes(ext)){
+        const v = document.createElement('video');
+        v.src = src;
+        v.preload = 'auto';
+        // iOS may not fire canplaythrough until user gesture; fallback to onloadedmetadata
+        v.oncanplaythrough = v.onloadedmetadata = v.onerror = () => { loaded++; if(loaded === total) resolve(); };
+      } else { loaded++; if(loaded === total) resolve(); }
+    });
+  });
+}
 
+/* ------------------ INITIALIZE ------------------ */
+async function startPreloading(){
+  await preloadAllAssets();
+  loadingOverlay.style.display = 'none';
+  renderState('main');
+}
+startPreloading();
+
+/* ------------------ ORIENTATION HANDLING (graceful) ------------------ */
+// Helper: detect iOS
+function isIOS(){
+  return (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+}
+
+// Show a subtle non-blocking banner in portrait; don't hide the app content.
+function handleOrientationChange(m){
+  // If the user already dismissed hint, don't re-show
+  const dismissed = localStorage.getItem('orientationHintDismissed');
+
+  if(m.matches){ // portrait
+    // On iOS we avoid blocking overlays entirely — show subtle hint unless dismissed
+    if(dismissed) {
+      orientationWarning.classList.add('hidden');
+    } else {
+      orientationWarning.classList.remove('hidden');
+    }
+  } else {
+    // landscape -> hide the hint
+    orientationWarning.classList.add('hidden');
+  }
+}
+
+// Use matchMedia to watch orientation and toggle a small hint; works on iOS and Android.
+const mq = window.matchMedia('(orientation: portrait)');
+if(typeof mq.addEventListener === 'function'){
+  mq.addEventListener('change', (ev)=>handleOrientationChange(ev));
+} else if(typeof mq.addListener === 'function'){
+  mq.addListener((ev)=>handleOrientationChange(ev));
+}
+// Run once on load
+handleOrientationChange(mq);
+
+/* ------------------ RENDER STATE ------------------ */
 const states = {
   'main': { 
     bg: 'assets/backgrounds/0.0.jpg', 
@@ -318,65 +363,14 @@ const states = {
   }
 };
 
-/* ------------------ PRELOAD ASSETS ------------------ */
-async function preloadAllAssets() {
-  const assetList = [
-    'assets/backgrounds/0.0.jpg','assets/backgrounds/0.0.mp4',
-    'assets/backgrounds/0.1.mp4',
-    'assets/gifs/0.1.1.mp4','assets/gifs/0.1.2.mp4','assets/gifs/0.1.3.mp4',
-    'assets/backgrounds/sidebar.jpg',
-    'assets/gifs/kpi.mp4',
-    'assets/gifs/touch.gif'
-  ];
-  let loaded = 0, total = assetList.length;
-  return new Promise(resolve => {
-    assetList.forEach(src => {
-      const ext = src.split('.').pop().toLowerCase();
-      if(['jpg','jpeg','png','webp','gif'].includes(ext)){
-        const img = new Image();
-        img.src = src;
-        img.onload = img.onerror = () => { 
-          loaded++;
-          if(loaded === total) resolve(); 
-        };
-      } else if(['mp4','mov','webm'].includes(ext)){
-        const v = document.createElement('video');
-        v.src = src;
-        v.preload = 'auto';
-        v.oncanplaythrough = v.onerror = () => { 
-          loaded++;
-          if(loaded === total) resolve(); 
-        };
-      } else {
-        loaded++;
-        if(loaded === total) resolve();
-      }
-    });
-  });
-}
-
-/* ------------------ INITIALIZE ------------------ */
-async function startPreloading() {
-  await preloadAllAssets();
-  loadingOverlay.style.display = 'none';
-  renderState('main');
-}
-startPreloading();
-
-/* ------------------ RENDER STATE ------------------ */
 function renderState(id){
   const s = states[id];
   if(!s) return;
 
-  // Initialize touched points tracking for this state
-  if(!touchedPoints[id]) {
-    touchedPoints[id] = new Set();
-  }
+  if(!touchedPoints[id]) touchedPoints[id] = new Set();
 
   // Clear videos
-  videoBg.pause(); 
-  videoBg.removeAttribute('src');
-  videoBg.load();
+  try { videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); } catch(e){}
   stageBase.src = '';
 
   // Remove old sidebars
@@ -396,11 +390,12 @@ function renderState(id){
 
       videoBg.src = s.video;
       videoBg.style.objectFit = 'contain';
-      videoBg.oncanplaythrough = () => videoBg.play();
+      // try to play; on iOS this may require a user gesture; it will still load as source
+      videoBg.play().catch(()=>{});
     } else {
       videoBg.src = s.video;
       videoBg.style.objectFit = 'cover';
-      videoBg.oncanplaythrough = () => videoBg.play();
+      videoBg.play().catch(()=>{});
     }
     stageBase.style.display = 'none';
   } else if(s.bg){
@@ -422,93 +417,54 @@ function renderState(id){
       el.style.left=pt.xPct+'%';
       el.style.top=pt.yPct+'%';
       el.setAttribute('data-point-id', pt.id);
-      
-      // Check if this is a KPI point that requires all other points to be touched
-      if(pt.type === 'kpi' && pt.requireAll) {
+      if(pt.type === 'kpi' && pt.requireAll){
         const regularPoints = s.points.filter(p => p.type !== 'kpi');
         const allTouched = regularPoints.every(p => touchedPoints[id].has(p.id));
-        if(!allTouched) {
-          el.classList.add('hidden-point');
-        }
+        if(!allTouched) el.classList.add('hidden-point');
       }
-      
-      if(id==='main' && pt.target==='0.1'){
-        el.addEventListener('click', playTransitionAndSwitch);
-      } else if(pt.type === 'kpi') {
-        el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
-      } else {
-        el.addEventListener('click',()=>{
-          // Mark this point as touched
-          touchedPoints[id].add(pt.id);
-          
-          if(pt.target) {
-            navigateTo(pt.target);
-          } else {
-            toggleOverlay(id, pt.id);
-            // Check if all regular points have been touched to reveal KPI
-            checkAndRevealKpi(id);
-          }
-        });
-      }
+      if(id==='main' && pt.target==='0.1') el.addEventListener('click', playTransitionAndSwitch);
+      else if(pt.type === 'kpi') el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
+      else el.addEventListener('click', ()=>{
+        touchedPoints[id].add(pt.id);
+        if(pt.target) navigateTo(pt.target);
+        else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
+      });
       centerContainer.appendChild(el);
     });
   }
 
   backButton.classList.toggle('hidden', !s.backTarget);
   if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-  if(s.autoReturn && s.returnTo){
-    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
-  }
+  if(s.autoReturn && s.returnTo){ autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); }
 
   currentState = id;
 }
 
 /* ------------------ CHECK AND REVEAL KPI ------------------ */
-function checkAndRevealKpi(stateId) {
-  const s = states[stateId];
-  if(!s || !s.points) return;
-  
+function checkAndRevealKpi(stateId){
+  const s = states[stateId]; if(!s || !s.points) return;
   const regularPoints = s.points.filter(p => p.type !== 'kpi');
   const allTouched = regularPoints.every(p => touchedPoints[stateId].has(p.id));
-  
-  if(allTouched) {
-    // Reveal KPI point
+  if(allTouched){
     const kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
-    if(kpiPoint) {
-      kpiPoint.classList.remove('hidden-point');
-    }
+    if(kpiPoint) kpiPoint.classList.remove('hidden-point');
   }
 }
 
 /* ------------------ KPI VIDEO OVERLAY ------------------ */
 function showKpiOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
-  
-  // Remove any existing KPI overlay
   centerContainer.querySelectorAll('.overlay-video').forEach(e=>e.remove());
   centerContainer.querySelectorAll('.kpi-back-button').forEach(e=>e.remove());
-  
   const vid = document.createElement('video');
-  vid.id = overlayId;
-  vid.className = 'overlay-video';
+  vid.id = overlayId; vid.className = 'overlay-video';
   vid.src = 'assets/gifs/kpi.mp4?v=' + Date.now();
-  vid.autoplay = true;
-  vid.loop = true;
-  vid.muted = true;
-  vid.playsInline = true;
+  vid.autoplay = true; vid.loop = true; vid.muted = true; vid.playsInline = true;
   centerContainer.appendChild(vid);
-  
-  // Add back button for KPI
   const kpiBackBtn = document.createElement('div');
-  kpiBackBtn.className = 'kpi-back-button';
-  kpiBackBtn.innerHTML = '←';
-  kpiBackBtn.addEventListener('click', () => {
-    vid.remove();
-    kpiBackBtn.remove();
-    resetAutoReturn();
-  });
+  kpiBackBtn.className = 'kpi-back-button'; kpiBackBtn.innerHTML = '←';
+  kpiBackBtn.addEventListener('click', ()=>{ vid.remove(); kpiBackBtn.remove(); resetAutoReturn(); });
   centerContainer.appendChild(kpiBackBtn);
-  
   activeOverlays.add(overlayId);
   resetAutoReturn();
 }
@@ -517,75 +473,46 @@ function showKpiOverlay(parentId, pointId){
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId+'.overlay.'+pointId;
   const existing=document.getElementById(overlayId);
-
-  if(existing){
-    existing.remove();
-    activeOverlays.delete(overlayId);
-  } else {
-    const img=document.createElement('img');
-    img.id=overlayId;
-    img.className='overlay-layer';
-    img.src='assets/gifs/'+pointId+'.webp?v='+Date.now();
-    img.style.opacity=1;
-    img.onerror = () => console.error('Failed to load overlay:', img.src);
-    centerContainer.appendChild(img);
-    activeOverlays.add(overlayId);
-  }
+  if(existing){ existing.remove(); activeOverlays.delete(overlayId); }
+  else { const img=document.createElement('img'); img.id=overlayId; img.className='overlay-layer'; img.src='assets/gifs/'+pointId+'.webp?v='+Date.now(); img.style.opacity=1; img.onerror = () => console.error('Failed to load overlay:', img.src); centerContainer.appendChild(img); activeOverlays.add(overlayId); }
   resetAutoReturn();
 }
 
 /* ------------------ NAVIGATION ------------------ */
-function navigateTo(id){ 
-  // Clear touched points when moving to a new state
-  if(id !== currentState && touchedPoints[id]) {
-    touchedPoints[id].clear();
-  }
-  renderState(id); 
-}
-
-backButton.addEventListener('click', ()=>{ 
-  const s = states[currentState];
-  if(s && s.backTarget) navigateTo(s.backTarget);
-});
+function navigateTo(id){ if(id !== currentState && touchedPoints[id]) touchedPoints[id].clear(); renderState(id); }
+backButton.addEventListener('click', ()=>{ const s = states[currentState]; if(s && s.backTarget) navigateTo(s.backTarget); });
 
 /* ------------------ TRANSITION ------------------ */
+const transitionVideo = document.createElement('video');
+transitionVideo.src = 'assets/backgrounds/0.0.mp4';
+transitionVideo.preload = 'auto';
+transitionVideo.muted = true; transitionVideo.playsInline = true;
+Object.assign(transitionVideo.style, { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 3, display: 'none', background: '#000' });
+document.body.appendChild(transitionVideo);
+
 function playTransitionAndSwitch(){
-  // Hide the main touch point immediately
-  const mainPoint = centerContainer.querySelector('.touch-point');
-  if(mainPoint) {
-    mainPoint.classList.add('hidden-point');
-  }
-  
-  // Set black background to prevent flickering
+  const mainPoint = centerContainer.querySelector('.touch-point'); if(mainPoint) mainPoint.classList.add('hidden-point');
   stage.style.background = '#000';
-  
   transitionVideo.style.display = 'block';
-  transitionVideo.currentTime = 0;
-  transitionVideo.play();
-  
-  transitionVideo.onended = () => {
+  transitionVideo.currentTime = 0; transitionVideo.play().catch(()=>{});
+  transitionVideo.onended = ()=>{
     transitionVideo.style.display = 'none';
-    // Preload next video before switching
-    const nextVideo = document.createElement('video');
-    nextVideo.src = 'assets/backgrounds/0.1.mp4';
-    nextVideo.preload = 'auto';
-    nextVideo.oncanplaythrough = () => {
-      renderState('0.1');
-    };
+    const nextVideo = document.createElement('video'); nextVideo.src = 'assets/backgrounds/0.1.mp4'; nextVideo.preload = 'auto'; nextVideo.oncanplaythrough = ()=>{ renderState('0.1'); };
   };
 }
 
-function resetAutoReturn(){
-  const s = states[currentState];
-  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-  if(s && s.autoReturn && s.returnTo){
-    autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer);
-  }
-}
+function resetAutoReturn(){ const s = states[currentState]; if(autoReturnTimeout) clearTimeout(autoReturnTimeout); if(s && s.autoReturn && s.returnTo){ autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); } }
 
 document.addEventListener('contextmenu', e=>e.preventDefault());
 document.addEventListener('selectstart', e=>e.preventDefault());
 window.addEventListener('resize', ()=>renderState(currentState));
+
+// Basic touch-friendly heuristic: if iOS and page loaded in portrait, keep subtle hint; do not block rendering.
+if(isIOS()){
+  // ensure we never show a full-screen blocking warning on iOS
+  orientationWarning.style.maxWidth = '92%';
+}
+
 </script>
 </body>
 </html>
