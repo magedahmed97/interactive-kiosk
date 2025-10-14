@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Interactive Kiosk (orientation-friendly)</title>
 <style>
 html, body {
@@ -47,7 +47,6 @@ html, body {
   border-radius: 8px;
   cursor: pointer;
   font-weight: bold;
-  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
 }
 #orientationWarning button:hover { background: #eee; }
 
@@ -214,17 +213,27 @@ html, body {
 
 <div class="kiosk-viewport">
   <div class="stage" id="stage">
-    <img id="stageBase" class="fullscreen-bg" src="/placeholder.svg" alt="base" />
-    <!-- Added webkit-playsinline for iOS compatibility -->
-    <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline webkit-playsinline></video>
+    <img id="stageBase" class="fullscreen-bg" src="" alt="base" />
+    <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline></video>
     <div class="center-container" id="centerContainer"></div>
     <div id="backButton" class="back-button hidden">←</div>
   </div>
 </div>
 
 <script>
-const KPI_LABEL_OFFSET_X = -280;
-const KPI_LABEL_OFFSET_Y = -15;
+/*
+  Behavior summary (what this file now does):
+  - KPI overlay (kpi.mp4) is fullscreen and uses object-fit: cover.
+  - KPI overlay does NOT loop; it stops at the last frame when finished.
+  - When you close KPI overlay (back arrow), you return to parent screen
+    and the KPI touch point + KPI label ("Click Here To See KPIs") are shown.
+  - Auto-return timers removed: guests must use the back arrow to return.
+  - KPI label positioning can be adjusted with KPI_LABEL_OFFSET_X / Y below.
+*/
+
+/* ---------- Configurable KPI label offsets (pixels) ---------- */
+const KPI_LABEL_OFFSET_X = -280; // px (horizontal distance from KPI point's left)
+const KPI_LABEL_OFFSET_Y = -15;  // px (vertical offset from KPI point's top)
 
 const centerContainer = document.getElementById('centerContainer');
 const backButton = document.getElementById('backButton');
@@ -240,8 +249,8 @@ let autoReturnTimeout = null;
 const activeOverlays = new Set();
 const touchedPoints = {};
 let kpiLabel = null;
-let kpiOverlayVid = null;
-let kpiOverlayPrevScreen = null;
+let kpiOverlayVid = null; // reference to the full-screen KPI video (if open)
+let kpiOverlayPrevScreen = null; // which screen to return to after closing KPI
 
 function dismissOrientationHint(persist = true){
   orientationWarning.classList.add('hidden');
@@ -249,13 +258,16 @@ function dismissOrientationHint(persist = true){
 }
 continueBtn.addEventListener('click', ()=>dismissOrientationHint(true));
 
+// Preloaded video references
 const preloadedVideos = {};
 
+// List of important videos to preload
 const videosToPreload = [
-  'assets/backgrounds/0.1.webm',
-  'assets/gifs/kpi.webm'
+  'assets/backgrounds/0.1.webm',   // main video
+  'assets/gifs/kpi.webm'           // KPI video
 ];
 
+// Preload function
 function preloadVideos(videos) {
   videos.forEach(src => {
     const vid = document.createElement('video');
@@ -263,16 +275,18 @@ function preloadVideos(videos) {
     vid.preload = 'auto';
     vid.muted = true;
     vid.playsInline = true;
-    vid.setAttribute('webkit-playsinline', ''); // iOS compatibility
+    // Keep hidden, don't attach to DOM yet
     vid.style.display = 'none';
     preloadedVideos[src] = vid;
 
+    // Optional: wait until ready to mark as preloaded
     vid.oncanplaythrough = () => {
       console.log(`Preloaded: ${src}`);
     };
   });
 }
 
+// Call it immediately
 preloadVideos(videosToPreload);
 
 /* ------------------ PRELOAD (lazy) ------------------ */
@@ -294,13 +308,11 @@ async function preloadAllAssets(){
       const i=new Image(); i.src=src; i.onload=i.onerror=res;
     } else res();
   })));
+  // Lazy load large assets a bit later to make UI interactive quickly.
   setTimeout(()=>largeAssets.forEach(src=>{
     const ext = src.split('.').pop().toLowerCase();
     if(['mp4','mov','webm'].includes(ext)){
       const v=document.createElement('video'); v.src=src; v.preload='auto';
-      v.muted = true;
-      v.playsInline = true;
-      v.setAttribute('webkit-playsinline', ''); // iOS compatibility
     } else { const i=new Image(); i.src=src; }
   }),2000);
 }
@@ -334,7 +346,7 @@ const states = {
       { id:'0.1.1.2', xPct:48.5, yPct:55 },
       { id:'0.1.1.3', xPct:66.5, yPct:43.5 },
       { id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ], autoReturn:true, returnTo:'0.1', backTarget:'0.1'
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
   },
   '0.1.2': { video:'assets/gifs/0.1.2.webm', withSidebar:true,
     points:[
@@ -342,7 +354,7 @@ const states = {
       { id:'0.1.2.2', xPct:50.3, yPct:24.7 },
       { id:'0.1.2.3', xPct:30, yPct:45.8 },
       { id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ], autoReturn:true, returnTo:'0.1', backTarget:'0.1'
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
   },
   '0.1.3': { video:'assets/gifs/0.1.3.webm', withSidebar:true,
     points:[
@@ -350,66 +362,19 @@ const states = {
       { id:'0.1.3.2', xPct:44.7, yPct:58.5 },
       { id:'0.1.3.3', xPct:71.5, yPct:58 },
       { id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
-    ], autoReturn:true, returnTo:'0.1', backTarget:'0.1'
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
   }
 };
 
-function addTouchHandler(element, handler) {
-  element.setAttribute('role', 'button');
-  element.setAttribute('tabindex', '0');
-  element.style.cursor = 'pointer';
-  
-  let touchHandled = false;
-  
-  element.addEventListener('touchstart', (e) => {
-    console.log('[v0] Touch started on:', element.getAttribute('data-point-id') || 'element');
-    touchHandled = false;
-    element.classList.add('touching');
-  }, { passive: true });
-  
-  element.addEventListener('touchend', (e) => {
-    console.log('[v0] Touch ended on:', element.getAttribute('data-point-id') || 'element');
-    e.preventDefault();
-    e.stopPropagation();
-    element.classList.remove('touching');
-    
-    if (!touchHandled) {
-      touchHandled = true;
-      console.log('[v0] Executing handler for:', element.getAttribute('data-point-id') || 'element');
-      handler(e);
-    }
-  }, { passive: false });
-  
-  element.addEventListener('touchcancel', (e) => {
-    console.log('[v0] Touch cancelled on:', element.getAttribute('data-point-id') || 'element');
-    element.classList.remove('touching');
-    touchHandled = false;
-  }, { passive: true });
-  
-  element.addEventListener('click', (e) => {
-    console.log('[v0] Click on:', element.getAttribute('data-point-id') || 'element');
-    if (!touchHandled) {
-      e.stopPropagation();
-      handler(e);
-    }
-    touchHandled = false;
-  });
-  
-  element.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handler(e);
-    }
-  });
-}
-
+/* ------------------ RENDER ------------------ */
 function renderState(id){
   const s = states[id]; if(!s) return;
-  console.log('[v0] Rendering state:', id);
   if(!touchedPoints[id]) touchedPoints[id]=new Set();
 
+  // clear KPI overlay if open (cleanup only)
   closeKpiOverlayIfOpen(false);
 
+  // reset overridden onclick for back button (if any)
   backButton.onclick = null;
 
   try{ videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); }catch(e){}
@@ -420,20 +385,20 @@ function renderState(id){
       const l=document.createElement('div'); l.className='sidebar left'; l.style.backgroundImage="url('assets/backgrounds/sidebar.webp')";
       const r=document.createElement('div'); r.className='sidebar right'; r.style.backgroundImage="url('assets/backgrounds/sidebar.webp')";
       stage.insertBefore(l, stage.firstChild); stage.insertBefore(r, stage.firstChild);
-      videoBg.src = s.video; videoBg.style.objectFit='contain'; 
-      videoBg.play().catch(()=>{});
+      videoBg.src = s.video; videoBg.style.objectFit='contain'; videoBg.play().catch(()=>{});
     } else {
-      videoBg.src = s.video; videoBg.style.objectFit='cover'; 
-      videoBg.play().catch(()=>{});
+      videoBg.src = s.video; videoBg.style.objectFit='cover'; videoBg.play().catch(()=>{});
     }
     stageBase.style.display='none';
   } else if(s.bg){
     stageBase.src = s.bg; stageBase.style.display='block';
   }
 
+  // remove previous interactive elements
   centerContainer.querySelectorAll('.touch-point, .overlay-layer, .overlay-video, .kpi-text').forEach(e=>e.remove());
   activeOverlays.clear();
 
+  // remove old KPI label reference
   if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
   if(s.points){
@@ -465,15 +430,19 @@ function renderState(id){
     });
   }
 
+  // ensure KPI label exists if KPI point is visible (handle returning from KPI)
   checkAndRevealKpi(id);
 
+  // hide or show back button depending on state
   backButton.classList.toggle('hidden', !s.backTarget);
 
+  // clear any autoReturn timeout (we do NOT set new timer)
   if(autoReturnTimeout) { clearTimeout(autoReturnTimeout); autoReturnTimeout = null; }
 
   currentState = id;
 }
 
+/* ------------------ KPI reveal label ------------------ */
 function checkAndRevealKpi(stateId){
   const s = states[stateId]; if(!s || !s.points) return;
   const regular = s.points.filter(p => p.type !== 'kpi');
@@ -481,20 +450,25 @@ function checkAndRevealKpi(stateId){
 
   if(!allTouched) return;
 
+  // prefer a hidden kpi point (meaning it was just revealed)...
   let kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
 
+  // ...otherwise find any KPI touch point (visible)
   if(!kpiPoint) kpiPoint = Array.from(centerContainer.querySelectorAll('.touch-point'))
     .find(el => el.getAttribute('data-point-id') && el.getAttribute('data-point-id').endsWith('.kpi'));
 
   if(kpiPoint){
+    // ensure it is visible
     kpiPoint.classList.remove('hidden-point');
 
+    // Add KPI label beside the button (use configured offsets)
     if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
     kpiLabel = document.createElement('div');
     kpiLabel.className = 'kpi-text';
     kpiLabel.textContent = 'Click Here To See KPIs';
 
+    // Calculate position relative to centerContainer
     const pointLeft = kpiPoint.offsetLeft;
     const pointTop = kpiPoint.offsetTop;
 
@@ -505,18 +479,21 @@ function checkAndRevealKpi(stateId){
   }
 }
 
+/* ------------------ KPI OVERLAY (fullscreen cover, no loop) ------------------ */
 function showKpiOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
 
+  // Remove previous KPI overlays/text if any
   document.querySelectorAll('.overlay-video, .kpi-text').forEach(e=>e.remove());
   if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
+  // Use preloaded KPI video
   const vid = preloadedVideos['assets/gifs/kpi.webm'];
   if(!vid) return;
 
   vid.id = overlayId;
-  vid.loop = false;
-  vid.currentTime = 0;
+  vid.loop = false; // stop at last frame
+  vid.currentTime = 0; // restart
   vid.style.position = 'fixed';
   vid.style.top = '0';
   vid.style.left = '0';
@@ -530,6 +507,7 @@ function showKpiOverlay(parentId, pointId){
   kpiOverlayVid = vid;
   kpiOverlayPrevScreen = parentId;
 
+  // Show back button above KPI video
   backButton.style.zIndex = '9999';
   backButton.classList.remove('hidden');
 
@@ -540,29 +518,37 @@ function showKpiOverlay(parentId, pointId){
 
   activeOverlays.add(overlayId);
 
+  // Auto-stop at last frame
   vid.onended = () => { vid.pause(); };
-  vid.play();
+  vid.play().catch(()=>{});
 }
 
+
+/* Helper: close KPI overlay if open. `navigateParent` tells whether to navigate to parent after cleanup */
 function closeKpiOverlayIfOpen(navigateParent){
   if(kpiOverlayVid){
     try { kpiOverlayVid.remove(); } catch(e){}
     kpiOverlayVid = null;
   }
 
+  // remove any body-level KPI text elements
   document.querySelectorAll('body > .kpi-text').forEach(e => e.remove());
 
+  // remember prev screen then clear
   const prev = kpiOverlayPrevScreen;
   kpiOverlayPrevScreen = null;
 
+  // If navigateParent requested, navigate back to the parent (this will re-render and recreate KPI label)
   if(navigateParent && prev){
     navigateTo(prev);
   } else {
+    // No navigation: just restore back button visibility according to current state
     const s = states[currentState];
     backButton.classList.toggle('hidden', !s || !s.backTarget);
   }
 }
 
+/* ------------------ OTHER HELPERS ------------------ */
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
   const existing = document.getElementById(overlayId);
@@ -581,19 +567,21 @@ function navigateTo(id){
   renderState(id);
 }
 
+// Global back button default behavior: go to current state's backTarget
 backButton.addEventListener('click', ()=>{
+  // If a custom onclick is set it runs first (overridden when KPI open).
   if(typeof backButton.onclick !== 'function' || backButton.onclick === null){
     const s = states[currentState];
     if(s && s.backTarget) navigateTo(s.backTarget);
   }
 });
 
+/* ------------------ TRANSITION ------------------ */
 const transitionVideo = document.createElement('video');
 transitionVideo.src = 'assets/backgrounds/0.0.webm';
 transitionVideo.preload = 'auto';
 transitionVideo.muted = true;
 transitionVideo.playsInline = true;
-transitionVideo.setAttribute('webkit-playsinline', '');
 Object.assign(transitionVideo.style, { position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', zIndex:3, display:'none' });
 document.body.appendChild(transitionVideo);
 
@@ -603,12 +591,10 @@ function playTransitionAndSwitch(){
   transitionVideo.currentTime = 0;
   transitionVideo.style.display = 'block';
   transitionVideo.play();
-  transitionVideo.onended = ()=>{ 
-    transitionVideo.style.display = 'none'; 
-    navigateTo('0.1'); 
-  };
+  transitionVideo.onended = ()=>{ transitionVideo.style.display = 'none'; navigateTo('0.1'); };
 }
 
+/* ------------------ SERVICE WORKER (optional; will error on file:///) ------------------ */
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js')
