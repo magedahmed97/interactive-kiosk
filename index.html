@@ -11,10 +11,9 @@ html, body {
   background: #000;
   overflow: hidden;
   font-family: Arial, sans-serif;
-  touch-action: manipulation; /* Changed from 'none' for iOS touch support */
+  touch-action: none;
   -webkit-user-select: none;
   user-select: none;
-  -webkit-tap-highlight-color: transparent; /* Prevent iOS tap highlight */
 }
 
 /* --- Orientation Notice (default: subtle banner) --- */
@@ -114,25 +113,10 @@ html, body {
   transform: translate(-50%, -50%);
   pointer-events: auto;
   transition: opacity 0.3s ease;
-  /* Enhanced iOS touch support */
-  -webkit-tap-highlight-color: rgba(255,255,255,0.3);
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: manipulation;
-  /* Ensure element is recognized as interactive on iOS */
-  min-width: 60px;
-  min-height: 60px;
 }
 .touch-point.hidden-point {
   opacity: 0;
   pointer-events: none;
-}
-
-/* Added visual feedback for debugging iOS touches */
-.touch-point.touching {
-  opacity: 0.7;
-  transform: translate(-50%, -50%) scale(0.95);
 }
 
 /* --- Overlays --- */
@@ -164,9 +148,6 @@ html, body {
   cursor: pointer;
   z-index: 10;
   transition: opacity 0.3s ease;
-  /* Added iOS touch support */
-  -webkit-tap-highlight-color: rgba(255,255,255,0.2);
-  touch-action: manipulation;
 }
 .back-button.hidden { display: none; }
 
@@ -242,15 +223,6 @@ html, body {
 </div>
 
 <script>
-/*
-  iOS Compatibility Fixes Applied:
-  - Changed touch-action from 'none' to 'manipulation'
-  - Added webkit-playsinline to all videos
-  - Created addTouchHandler() for proper iOS touch event handling
-  - Added touchend listeners in addition to click events
-*/
-
-/* ---------- Configurable KPI label offsets (pixels) ---------- */
 const KPI_LABEL_OFFSET_X = -280;
 const KPI_LABEL_OFFSET_Y = -15;
 
@@ -382,23 +354,19 @@ const states = {
   }
 };
 
-/* Improved iOS-specific touch handler with better event handling */
 function addTouchHandler(element, handler) {
-  // Make element explicitly interactive for iOS
   element.setAttribute('role', 'button');
   element.setAttribute('tabindex', '0');
   element.style.cursor = 'pointer';
   
   let touchHandled = false;
   
-  // Handle touchstart for visual feedback
   element.addEventListener('touchstart', (e) => {
     console.log('[v0] Touch started on:', element.getAttribute('data-point-id') || 'element');
     touchHandled = false;
     element.classList.add('touching');
   }, { passive: true });
   
-  // Use touchend for the actual action (most reliable on iOS)
   element.addEventListener('touchend', (e) => {
     console.log('[v0] Touch ended on:', element.getAttribute('data-point-id') || 'element');
     e.preventDefault();
@@ -412,14 +380,12 @@ function addTouchHandler(element, handler) {
     }
   }, { passive: false });
   
-  // Handle touchcancel
   element.addEventListener('touchcancel', (e) => {
     console.log('[v0] Touch cancelled on:', element.getAttribute('data-point-id') || 'element');
     element.classList.remove('touching');
     touchHandled = false;
   }, { passive: true });
   
-  // Keep click for desktop/non-touch devices
   element.addEventListener('click', (e) => {
     console.log('[v0] Click on:', element.getAttribute('data-point-id') || 'element');
     if (!touchHandled) {
@@ -429,7 +395,6 @@ function addTouchHandler(element, handler) {
     touchHandled = false;
   });
   
-  // Add keyboard support for accessibility
   element.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -438,7 +403,6 @@ function addTouchHandler(element, handler) {
   });
 }
 
-/* ------------------ RENDER ------------------ */
 function renderState(id){
   const s = states[id]; if(!s) return;
   console.log('[v0] Rendering state:', id);
@@ -479,7 +443,6 @@ function renderState(id){
       el.style.left = pt.xPct + '%';
       el.style.top = pt.yPct + '%';
       el.setAttribute('data-point-id', pt.id);
-      el.setAttribute('aria-label', `Touch point ${pt.id}`);
 
       if(pt.type === 'kpi' && pt.requireAll){
         const allTouched = s.points.filter(p=>p.type!=='kpi').every(p => touchedPoints[id].has(p.id));
@@ -487,15 +450,11 @@ function renderState(id){
       }
 
       if(id === 'main' && pt.target === '0.1'){
-        console.log('[v0] Adding handler for main transition point');
-        addTouchHandler(el, playTransitionAndSwitch);
+        el.addEventListener('click', playTransitionAndSwitch);
       } else if(pt.type === 'kpi'){
-        console.log('[v0] Adding handler for KPI point:', pt.id);
-        addTouchHandler(el, ()=>showKpiOverlay(id, pt.id));
+        el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
       } else {
-        console.log('[v0] Adding handler for regular point:', pt.id);
-        addTouchHandler(el, ()=>{
-          console.log('[v0] Point touched:', pt.id);
+        el.addEventListener('click', ()=>{
           touchedPoints[id].add(pt.id);
           if(pt.target) navigateTo(pt.target);
           else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
@@ -515,7 +474,6 @@ function renderState(id){
   currentState = id;
 }
 
-/* ------------------ KPI reveal label ------------------ */
 function checkAndRevealKpi(stateId){
   const s = states[stateId]; if(!s || !s.points) return;
   const regular = s.points.filter(p => p.type !== 'kpi');
@@ -547,7 +505,6 @@ function checkAndRevealKpi(stateId){
   }
 }
 
-/* ------------------ KPI OVERLAY (fullscreen cover, no loop) ------------------ */
 function showKpiOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
 
@@ -584,7 +541,7 @@ function showKpiOverlay(parentId, pointId){
   activeOverlays.add(overlayId);
 
   vid.onended = () => { vid.pause(); };
-  vid.play().catch(()=>{});
+  vid.play();
 }
 
 function closeKpiOverlayIfOpen(navigateParent){
@@ -606,7 +563,6 @@ function closeKpiOverlayIfOpen(navigateParent){
   }
 }
 
-/* ------------------ OTHER HELPERS ------------------ */
 function toggleOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
   const existing = document.getElementById(overlayId);
@@ -625,38 +581,34 @@ function navigateTo(id){
   renderState(id);
 }
 
-addTouchHandler(backButton, ()=>{
+backButton.addEventListener('click', ()=>{
   if(typeof backButton.onclick !== 'function' || backButton.onclick === null){
     const s = states[currentState];
     if(s && s.backTarget) navigateTo(s.backTarget);
   }
 });
 
-/* ------------------ TRANSITION ------------------ */
 const transitionVideo = document.createElement('video');
 transitionVideo.src = 'assets/backgrounds/0.0.webm';
 transitionVideo.preload = 'auto';
 transitionVideo.muted = true;
 transitionVideo.playsInline = true;
-transitionVideo.setAttribute('webkit-playsinline', ''); // iOS compatibility
+transitionVideo.setAttribute('webkit-playsinline', '');
 Object.assign(transitionVideo.style, { position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', zIndex:3, display:'none' });
 document.body.appendChild(transitionVideo);
 
 function playTransitionAndSwitch(){
-  console.log('[v0] Playing transition to 0.1');
   const mainPoint = centerContainer.querySelector('.touch-point');
   if(mainPoint) mainPoint.classList.add('hidden-point');
   transitionVideo.currentTime = 0;
   transitionVideo.style.display = 'block';
-  transitionVideo.play().catch(err => console.log('[v0] Video play error:', err));
+  transitionVideo.play();
   transitionVideo.onended = ()=>{ 
-    console.log('[v0] Transition ended, navigating to 0.1');
     transitionVideo.style.display = 'none'; 
     navigateTo('0.1'); 
   };
 }
 
-/* ------------------ SERVICE WORKER (optional; will error on file:///) ------------------ */
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js')
