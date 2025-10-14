@@ -150,7 +150,7 @@ html, body {
 }
 .back-button.hidden { display: none; }
 
-/* --- KPI Back Button --- */
+/* --- KPI Back Button (not used visually now) --- */
 .kpi-back-button {
   position: absolute;
   bottom: 30px;
@@ -186,6 +186,17 @@ html, body {
 }
 .loader { width: 60px; height: 60px; border: 6px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* KPI text style (will be positioned dynamically) */
+.kpi-text {
+  color: #fff;
+  font-weight: bold;
+  font-size: 18px;
+  text-shadow: 1px 1px 4px rgba(0,0,0,0.7);
+  z-index: 999;
+  position: absolute;
+  pointer-events: none;
+}
 </style>
 </head>
 <body>
@@ -210,6 +221,20 @@ html, body {
 </div>
 
 <script>
+/*
+  Behavior summary (what this file now does):
+  - KPI overlay (kpi.mp4) is fullscreen and uses object-fit: cover.
+  - KPI overlay does NOT loop; it stops at the last frame when finished.
+  - When you close KPI overlay (back arrow), you return to parent screen
+    and the KPI touch point + KPI label ("Click Here To See KPIs") are shown.
+  - Auto-return timers removed: guests must use the back arrow to return.
+  - KPI label positioning can be adjusted with KPI_LABEL_OFFSET_X / Y below.
+*/
+
+/* ---------- Configurable KPI label offsets (pixels) ---------- */
+const KPI_LABEL_OFFSET_X = -280; // px (horizontal distance from KPI point's left)
+const KPI_LABEL_OFFSET_Y = -15;  // px (vertical offset from KPI point's top)
+
 const centerContainer = document.getElementById('centerContainer');
 const backButton = document.getElementById('backButton');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -223,6 +248,9 @@ let currentState = 'main';
 let autoReturnTimeout = null;
 const activeOverlays = new Set();
 const touchedPoints = {};
+let kpiLabel = null;
+let kpiOverlayVid = null; // reference to the full-screen KPI video (if open)
+let kpiOverlayPrevScreen = null; // which screen to return to after closing KPI
 
 function dismissOrientationHint(persist = true){
   orientationWarning.classList.add('hidden');
@@ -230,7 +258,38 @@ function dismissOrientationHint(persist = true){
 }
 continueBtn.addEventListener('click', ()=>dismissOrientationHint(true));
 
-/* ------------------ LAZY PRELOAD ASSETS ------------------ */
+// Preloaded video references
+const preloadedVideos = {};
+
+// List of important videos to preload
+const videosToPreload = [
+  'assets/backgrounds/0.1.mp4',   // main video
+  'assets/gifs/kpi.mp4'           // KPI video
+];
+
+// Preload function
+function preloadVideos(videos) {
+  videos.forEach(src => {
+    const vid = document.createElement('video');
+    vid.src = src;
+    vid.preload = 'auto';
+    vid.muted = true;
+    vid.playsInline = true;
+    // Keep hidden, don't attach to DOM yet
+    vid.style.display = 'none';
+    preloadedVideos[src] = vid;
+
+    // Optional: wait until ready to mark as preloaded
+    vid.oncanplaythrough = () => {
+      console.log(`Preloaded: ${src}`);
+    };
+  });
+}
+
+// Call it immediately
+preloadVideos(videosToPreload);
+
+/* ------------------ PRELOAD (lazy) ------------------ */
 async function preloadAllAssets(){
   const smallAssets = [
     'assets/backgrounds/0.0.jpg',
@@ -243,142 +302,304 @@ async function preloadAllAssets(){
     'assets/gifs/0.1.1.mp4','assets/gifs/0.1.2.mp4','assets/gifs/0.1.3.mp4',
     'assets/gifs/kpi.mp4'
   ];
-
-  await Promise.all(smallAssets.map(src => new Promise(resolve=>{
+  await Promise.all(smallAssets.map(src => new Promise(res=>{
     const ext = src.split('.').pop().toLowerCase();
     if(['jpg','jpeg','png','webp','gif'].includes(ext)){
-      const img = new Image(); img.src = src; img.onload = img.onerror = resolve;
-    } else { resolve(); }
+      const i=new Image(); i.src=src; i.onload=i.onerror=res;
+    } else res();
   })));
-
-  // Lazy load large assets
-  setTimeout(() => {
-    largeAssets.forEach(src => {
-      const ext = src.split('.').pop().toLowerCase();
-      if(['mp4','mov','webm'].includes(ext)){
-        const v = document.createElement('video'); v.src = src; v.preload = 'auto';
-      } else if(['jpg','jpeg','png','webp','gif'].includes(ext)){
-        const img = new Image(); img.src = src;
-      }
-    });
-  }, 2000);
+  // Lazy load large assets a bit later to make UI interactive quickly.
+  setTimeout(()=>largeAssets.forEach(src=>{
+    const ext = src.split('.').pop().toLowerCase();
+    if(['mp4','mov','webm'].includes(ext)){
+      const v=document.createElement('video'); v.src=src; v.preload='auto';
+    } else { const i=new Image(); i.src=src; }
+  }),2000);
 }
 
-async function startPreloading(){
-  await preloadAllAssets();
-  loadingOverlay.style.display = 'none';
-  renderState('main');
-}
+async function startPreloading(){ await preloadAllAssets(); loadingOverlay.style.display='none'; renderState('main'); }
 startPreloading();
 
-/* ------------------ ORIENTATION HANDLING ------------------ */
-function isIOS(){ return (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)); }
-
+/* ------------------ ORIENTATION ------------------ */
+function isIOS(){ return (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1)); }
 function handleOrientationChange(m){
-  const dismissed = localStorage.getItem('orientationHintDismissed');
-  if(m.matches){
-    if(dismissed){ orientationWarning.classList.add('hidden'); } 
-    else { orientationWarning.classList.remove('hidden'); }
-  } else { orientationWarning.classList.add('hidden'); }
+  const d=localStorage.getItem('orientationHintDismissed');
+  if(m.matches){ if(d) orientationWarning.classList.add('hidden'); else orientationWarning.classList.remove('hidden'); }
+  else orientationWarning.classList.add('hidden');
 }
 const mq = window.matchMedia('(orientation: portrait)');
-if(typeof mq.addEventListener === 'function'){ mq.addEventListener('change', handleOrientationChange); } 
-else if(typeof mq.addListener === 'function'){ mq.addListener(handleOrientationChange); }
+if(typeof mq.addEventListener === 'function') mq.addEventListener('change', handleOrientationChange);
+else if(typeof mq.addListener === 'function') mq.addListener(handleOrientationChange);
 handleOrientationChange(mq);
 
-/* ------------------ RENDER STATE ------------------ */
+/* ------------------ STATES ------------------ */
 const states = {
   'main': { bg:'assets/backgrounds/0.0.jpg', points:[ { id:'tp0.0', xPct:49.7, yPct:59.0, target:'0.1' } ], backTarget:null },
-  '0.1': { video:'assets/backgrounds/0.1.mp4', points:[ { id:'0.1.1', xPct:13, yPct:58, target:'0.1.1' },{ id:'0.1.2', xPct:49, yPct:24, target:'0.1.2' },{ id:'0.1.3', xPct:80, yPct:42, target:'0.1.3' } ], backTarget:'main' },
-  '0.1.1': { video:'assets/gifs/0.1.1.mp4', withSidebar:true, points:[ { id:'0.1.1.1', xPct:22, yPct:34 },{ id:'0.1.1.2', xPct:48.5, yPct:55 },{ id:'0.1.1.3', xPct:66.5, yPct:43.5 },{ id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' },
-  '0.1.2': { video:'assets/gifs/0.1.2.mp4', withSidebar:true, points:[ { id:'0.1.2.1', xPct:66.3, yPct:43.5 },{ id:'0.1.2.2', xPct:50.3, yPct:24.7 },{ id:'0.1.2.3', xPct:30, yPct:45.8 },{ id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' },
-  '0.1.3': { video:'assets/gifs/0.1.3.mp4', withSidebar:true, points:[ { id:'0.1.3.1', xPct:59.7, yPct:22.5 },{ id:'0.1.3.2', xPct:44.7, yPct:58.5 },{ id:'0.1.3.3', xPct:71.5, yPct:58 },{ id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true } ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1' }
+  '0.1': { video:'assets/backgrounds/0.1.mp4', points:[
+      { id:'0.1.1', xPct:13, yPct:58, target:'0.1.1' },
+      { id:'0.1.2', xPct:49, yPct:24, target:'0.1.2' },
+      { id:'0.1.3', xPct:80, yPct:42, target:'0.1.3' }
+  ], backTarget:'main' },
+  '0.1.1': { video:'assets/gifs/0.1.1.mp4', withSidebar:true,
+    points:[
+      { id:'0.1.1.1', xPct:22, yPct:34 },
+      { id:'0.1.1.2', xPct:48.5, yPct:55 },
+      { id:'0.1.1.3', xPct:66.5, yPct:43.5 },
+      { id:'0.1.1.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  },
+  '0.1.2': { video:'assets/gifs/0.1.2.mp4', withSidebar:true,
+    points:[
+      { id:'0.1.2.1', xPct:66.3, yPct:43.5 },
+      { id:'0.1.2.2', xPct:50.3, yPct:24.7 },
+      { id:'0.1.2.3', xPct:30, yPct:45.8 },
+      { id:'0.1.2.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  },
+  '0.1.3': { video:'assets/gifs/0.1.3.mp4', withSidebar:true,
+    points:[
+      { id:'0.1.3.1', xPct:59.7, yPct:22.5 },
+      { id:'0.1.3.2', xPct:44.7, yPct:58.5 },
+      { id:'0.1.3.3', xPct:71.5, yPct:58 },
+      { id:'0.1.3.1.kpi', xPct:95, yPct:90, type:'kpi', requireAll:true }
+    ], autoReturn:true, returnTo:'0.1', timer:55000, backTarget:'0.1'
+  }
 };
 
+/* ------------------ RENDER ------------------ */
 function renderState(id){
   const s = states[id]; if(!s) return;
   if(!touchedPoints[id]) touchedPoints[id]=new Set();
-  try { videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); } catch(e){}
-  stageBase.src='';
-  document.querySelectorAll('.sidebar').forEach(e=>e.remove());
+
+  // clear KPI overlay if open (cleanup only)
+  closeKpiOverlayIfOpen(false);
+
+  // reset overridden onclick for back button (if any)
+  backButton.onclick = null;
+
+  try{ videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); }catch(e){}
+  stageBase.src=''; document.querySelectorAll('.sidebar').forEach(e=>e.remove());
+
   if(s.video){
     if(s.withSidebar){
-      const leftSidebar = document.createElement('div'); leftSidebar.className='sidebar left'; leftSidebar.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
-      const rightSidebar = document.createElement('div'); rightSidebar.className='sidebar right'; rightSidebar.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
-      stage.insertBefore(leftSidebar, stage.firstChild); stage.insertBefore(rightSidebar, stage.firstChild);
-      videoBg.src=s.video; videoBg.style.objectFit='contain'; videoBg.play().catch(()=>{});
-    } else { videoBg.src=s.video; videoBg.style.objectFit='cover'; videoBg.play().catch(()=>{}); }
+      const l=document.createElement('div'); l.className='sidebar left'; l.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
+      const r=document.createElement('div'); r.className='sidebar right'; r.style.backgroundImage="url('assets/backgrounds/sidebar.jpg')";
+      stage.insertBefore(l, stage.firstChild); stage.insertBefore(r, stage.firstChild);
+      videoBg.src = s.video; videoBg.style.objectFit='contain'; videoBg.play().catch(()=>{});
+    } else {
+      videoBg.src = s.video; videoBg.style.objectFit='cover'; videoBg.play().catch(()=>{});
+    }
     stageBase.style.display='none';
-  } else if(s.bg){ stageBase.src=s.bg; stageBase.style.display='block'; stageBase.onerror = ()=>console.error('Failed to load:', stageBase.src); }
-  centerContainer.querySelectorAll('.touch-point, .overlay-layer, .overlay-video, .kpi-back-button').forEach(e=>e.remove());
+  } else if(s.bg){
+    stageBase.src = s.bg; stageBase.style.display='block';
+  }
+
+  // remove previous interactive elements
+  centerContainer.querySelectorAll('.touch-point, .overlay-layer, .overlay-video, .kpi-text').forEach(e=>e.remove());
   activeOverlays.clear();
+
+  // remove old KPI label reference
+  if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
+
   if(s.points){
     s.points.forEach(pt=>{
-      const el=document.createElement('div'); el.className='touch-point'; el.style.left=pt.xPct+'%'; el.style.top=pt.yPct+'%'; el.setAttribute('data-point-id', pt.id);
-      if(pt.type==='kpi' && pt.requireAll){ const allTouched=s.points.filter(p=>p.type!=='kpi').every(p=>touchedPoints[id].has(p.id)); if(!allTouched) el.classList.add('hidden-point'); }
-      if(id==='main' && pt.target==='0.1') el.addEventListener('click', playTransitionAndSwitch);
-      else if(pt.type==='kpi') el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
-      else el.addEventListener('click', ()=>{ touchedPoints[id].add(pt.id); if(pt.target) navigateTo(pt.target); else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); } });
+      const el = document.createElement('div');
+      el.className = 'touch-point';
+      el.style.left = pt.xPct + '%';
+      el.style.top = pt.yPct + '%';
+      el.setAttribute('data-point-id', pt.id);
+
+      if(pt.type === 'kpi' && pt.requireAll){
+        const allTouched = s.points.filter(p=>p.type!=='kpi').every(p => touchedPoints[id].has(p.id));
+        if(!allTouched) el.classList.add('hidden-point');
+      }
+
+      if(id === 'main' && pt.target === '0.1'){
+        el.addEventListener('click', playTransitionAndSwitch);
+      } else if(pt.type === 'kpi'){
+        el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
+      } else {
+        el.addEventListener('click', ()=>{
+          touchedPoints[id].add(pt.id);
+          if(pt.target) navigateTo(pt.target);
+          else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
+        });
+      }
+
       centerContainer.appendChild(el);
     });
   }
+
+  // ensure KPI label exists if KPI point is visible (handle returning from KPI)
+  checkAndRevealKpi(id);
+
+  // hide or show back button depending on state
   backButton.classList.toggle('hidden', !s.backTarget);
-  if(autoReturnTimeout) clearTimeout(autoReturnTimeout);
-  if(s.autoReturn && s.returnTo){ autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); }
+
+  // clear any autoReturn timeout (we do NOT set new timer)
+  if(autoReturnTimeout) { clearTimeout(autoReturnTimeout); autoReturnTimeout = null; }
+
   currentState = id;
 }
 
+/* ------------------ KPI reveal label ------------------ */
 function checkAndRevealKpi(stateId){
   const s = states[stateId]; if(!s || !s.points) return;
-  const regularPoints = s.points.filter(p => p.type!=='kpi'); if(regularPoints.every(p => touchedPoints[stateId].has(p.id))){
-    const kpiPoint = centerContainer.querySelector('.touch-point.hidden-point'); if(kpiPoint) kpiPoint.classList.remove('hidden-point');
+  const regular = s.points.filter(p => p.type !== 'kpi');
+  const allTouched = regular.every(p => touchedPoints[stateId].has(p.id));
+
+  if(!allTouched) return;
+
+  // prefer a hidden kpi point (meaning it was just revealed)...
+  let kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
+
+  // ...otherwise find any KPI touch point (visible)
+  if(!kpiPoint) kpiPoint = Array.from(centerContainer.querySelectorAll('.touch-point'))
+    .find(el => el.getAttribute('data-point-id') && el.getAttribute('data-point-id').endsWith('.kpi'));
+
+  if(kpiPoint){
+    // ensure it is visible
+    kpiPoint.classList.remove('hidden-point');
+
+    // Add KPI label beside the button (use configured offsets)
+    if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
+
+    kpiLabel = document.createElement('div');
+    kpiLabel.className = 'kpi-text';
+    kpiLabel.textContent = 'Click Here To See KPIs';
+
+    // Calculate position relative to centerContainer
+    const pointLeft = kpiPoint.offsetLeft;
+    const pointTop = kpiPoint.offsetTop;
+
+    kpiLabel.style.left = (pointLeft + KPI_LABEL_OFFSET_X) + 'px';
+    kpiLabel.style.top  = (pointTop + KPI_LABEL_OFFSET_Y) + 'px';
+
+    centerContainer.appendChild(kpiLabel);
   }
 }
 
+/* ------------------ KPI OVERLAY (fullscreen cover, no loop) ------------------ */
 function showKpiOverlay(parentId, pointId){
-  const overlayId = parentId+'.overlay.'+pointId;
-  centerContainer.querySelectorAll('.overlay-video, .kpi-back-button').forEach(e=>e.remove());
-  const vid=document.createElement('video'); vid.id=overlayId; vid.className='overlay-video';
-  vid.src='assets/gifs/kpi.mp4?v='+Date.now(); vid.autoplay=true; vid.loop=true; vid.muted=true; vid.playsInline=true;
-  centerContainer.appendChild(vid);
-  const kpiBackBtn = document.createElement('div'); kpiBackBtn.className='kpi-back-button'; kpiBackBtn.innerHTML='←';
-  kpiBackBtn.addEventListener('click', ()=>{ vid.remove(); kpiBackBtn.remove(); resetAutoReturn(); });
-  centerContainer.appendChild(kpiBackBtn);
+  const overlayId = parentId + '.overlay.' + pointId;
+
+  // Remove previous KPI overlays/text if any
+  document.querySelectorAll('.overlay-video, .kpi-text').forEach(e=>e.remove());
+  if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
+
+  // Use preloaded KPI video
+  const vid = preloadedVideos['assets/gifs/kpi.mp4'];
+  if(!vid) return;
+
+  vid.id = overlayId;
+  vid.loop = false; // stop at last frame
+  vid.currentTime = 0; // restart
+  vid.style.position = 'fixed';
+  vid.style.top = '0';
+  vid.style.left = '0';
+  vid.style.width = '100vw';
+  vid.style.height = '100vh';
+  vid.style.objectFit = 'cover';
+  vid.style.zIndex = '9998';
+  vid.style.display = 'block';
+
+  document.body.appendChild(vid);
+  kpiOverlayVid = vid;
+  kpiOverlayPrevScreen = parentId;
+
+  // Show back button above KPI video
+  backButton.style.zIndex = '9999';
+  backButton.classList.remove('hidden');
+
+  backButton.onclick = () => {
+    closeKpiOverlayIfOpen(true);
+    backButton.onclick = null;
+  };
+
   activeOverlays.add(overlayId);
-  resetAutoReturn();
+
+  // Auto-stop at last frame
+  vid.onended = () => { vid.pause(); };
+  vid.play().catch(()=>{});
 }
 
+
+/* Helper: close KPI overlay if open. `navigateParent` tells whether to navigate to parent after cleanup */
+function closeKpiOverlayIfOpen(navigateParent){
+  if(kpiOverlayVid){
+    try { kpiOverlayVid.remove(); } catch(e){}
+    kpiOverlayVid = null;
+  }
+
+  // remove any body-level KPI text elements
+  document.querySelectorAll('body > .kpi-text').forEach(e => e.remove());
+
+  // remember prev screen then clear
+  const prev = kpiOverlayPrevScreen;
+  kpiOverlayPrevScreen = null;
+
+  // If navigateParent requested, navigate back to the parent (this will re-render and recreate KPI label)
+  if(navigateParent && prev){
+    navigateTo(prev);
+  } else {
+    // No navigation: just restore back button visibility according to current state
+    const s = states[currentState];
+    backButton.classList.toggle('hidden', !s || !s.backTarget);
+  }
+}
+
+/* ------------------ OTHER HELPERS ------------------ */
 function toggleOverlay(parentId, pointId){
-  const overlayId = parentId+'.overlay.'+pointId;
-  const existing=document.getElementById(overlayId);
+  const overlayId = parentId + '.overlay.' + pointId;
+  const existing = document.getElementById(overlayId);
   if(existing){ existing.remove(); activeOverlays.delete(overlayId); }
-  else { const img=document.createElement('img'); img.id=overlayId; img.className='overlay-layer'; img.src='assets/gifs/'+pointId+'.webp?v='+Date.now(); centerContainer.appendChild(img); activeOverlays.add(overlayId); }
-  resetAutoReturn();
+  else {
+    const img = document.createElement('img');
+    img.id = overlayId; img.className = 'overlay-layer';
+    img.src = 'assets/gifs/' + pointId + '.webp?v=' + Date.now();
+    centerContainer.appendChild(img);
+    activeOverlays.add(overlayId);
+  }
 }
 
-function navigateTo(id){ if(id!==currentState && touchedPoints[id]) touchedPoints[id].clear(); renderState(id); }
-backButton.addEventListener('click', ()=>{ const s = states[currentState]; if(s && s.backTarget) navigateTo(s.backTarget); });
+function navigateTo(id){
+  if(id !== currentState && touchedPoints[id]) touchedPoints[id].clear();
+  renderState(id);
+}
 
-const transitionVideo=document.createElement('video'); transitionVideo.src='assets/backgrounds/0.0.mp4'; transitionVideo.preload='auto'; transitionVideo.muted=true; transitionVideo.playsInline=true;
-Object.assign(transitionVideo.style,{position:'absolute',top:0,left:0,width:'100%',height:'100%',objectFit:'cover',zIndex:3,display:'none',background:'#000'});
+// Global back button default behavior: go to current state's backTarget
+backButton.addEventListener('click', ()=>{
+  // If a custom onclick is set it runs first (overridden when KPI open).
+  if(typeof backButton.onclick !== 'function' || backButton.onclick === null){
+    const s = states[currentState];
+    if(s && s.backTarget) navigateTo(s.backTarget);
+  }
+});
+
+/* ------------------ TRANSITION ------------------ */
+const transitionVideo = document.createElement('video');
+transitionVideo.src = 'assets/backgrounds/0.0.mp4';
+transitionVideo.preload = 'auto';
+transitionVideo.muted = true;
+transitionVideo.playsInline = true;
+Object.assign(transitionVideo.style, { position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', zIndex:3, display:'none' });
 document.body.appendChild(transitionVideo);
 
 function playTransitionAndSwitch(){
-  const mainPoint=centerContainer.querySelector('.touch-point'); if(mainPoint) mainPoint.classList.add('hidden-point');
-  transitionVideo.currentTime=0; transitionVideo.style.display='block'; transitionVideo.play();
-  transitionVideo.onended=()=>{ transitionVideo.style.display='none'; navigateTo('0.1'); };
+  const mainPoint = centerContainer.querySelector('.touch-point');
+  if(mainPoint) mainPoint.classList.add('hidden-point');
+  transitionVideo.currentTime = 0;
+  transitionVideo.style.display = 'block';
+  transitionVideo.play();
+  transitionVideo.onended = ()=>{ transitionVideo.style.display = 'none'; navigateTo('0.1'); };
 }
 
-function resetAutoReturn(){
-  const s=states[currentState]; if(s?.autoReturn && s.returnTo){ if(autoReturnTimeout) clearTimeout(autoReturnTimeout); autoReturnTimeout = setTimeout(()=>navigateTo(s.returnTo), s.timer); }
-}
-
-/* ------------------ SERVICE WORKER ------------------ */
+/* ------------------ SERVICE WORKER (optional; will error on file:///) ------------------ */
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('sw.js')
       .then(reg=>console.log('SW registered:', reg.scope))
-      .catch(err=>console.error('SW failed:', err));
+      .catch(err=>console.log('SW failed:', err));
   });
 }
 </script>
