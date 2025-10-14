@@ -2,12 +2,10 @@ const CACHE_NAME = 'kiosk-cache-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/style.css',
-  '/script.js',
-  '/assets/backgrounds/0.0.jpg',
-  '/assets/gifs/touch.gif',
-  '/assets/backgrounds/sidebar.jpg',
-  '/assets/backgrounds/0.0.mp4'
+  '/assets/backgrounds/mainbg.webp',
+  '/assets/gifs/touch.webp',
+  '/assets/backgrounds/sidebar.webp',
+  '/assets/backgrounds/0.0.webm'
 ];
 
 // Install: cache essential assets
