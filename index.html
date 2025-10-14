@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>Interactive Kiosk (orientation-friendly)</title>
 <style>
 html, body {
@@ -11,9 +11,10 @@ html, body {
   background: #000;
   overflow: hidden;
   font-family: Arial, sans-serif;
-  touch-action: none;
+  touch-action: manipulation; /* Changed from 'none' for iOS touch support */
   -webkit-user-select: none;
   user-select: none;
+  -webkit-tap-highlight-color: transparent; /* Prevent iOS tap highlight */
 }
 
 /* --- Orientation Notice (default: subtle banner) --- */
@@ -47,6 +48,7 @@ html, body {
   border-radius: 8px;
   cursor: pointer;
   font-weight: bold;
+  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
 }
 #orientationWarning button:hover { background: #eee; }
 
@@ -112,6 +114,10 @@ html, body {
   transform: translate(-50%, -50%);
   pointer-events: auto;
   transition: opacity 0.3s ease;
+  /* Added iOS-specific touch improvements */
+  -webkit-tap-highlight-color: rgba(255,255,255,0.2);
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 .touch-point.hidden-point {
   opacity: 0;
@@ -147,6 +153,9 @@ html, body {
   cursor: pointer;
   z-index: 10;
   transition: opacity 0.3s ease;
+  /* Added iOS touch support */
+  -webkit-tap-highlight-color: rgba(255,255,255,0.2);
+  touch-action: manipulation;
 }
 .back-button.hidden { display: none; }
 
@@ -213,8 +222,9 @@ html, body {
 
 <div class="kiosk-viewport">
   <div class="stage" id="stage">
-    <img id="stageBase" class="fullscreen-bg" src="" alt="base" />
-    <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline></video>
+    <img id="stageBase" class="fullscreen-bg" src="/placeholder.svg" alt="base" />
+    <!-- Added webkit-playsinline for iOS compatibility -->
+    <video id="videoBg" class="fullscreen-bg" autoplay loop muted playsinline webkit-playsinline></video>
     <div class="center-container" id="centerContainer"></div>
     <div id="backButton" class="back-button hidden">←</div>
   </div>
@@ -222,18 +232,16 @@ html, body {
 
 <script>
 /*
-  Behavior summary (what this file now does):
-  - KPI overlay (kpi.mp4) is fullscreen and uses object-fit: cover.
-  - KPI overlay does NOT loop; it stops at the last frame when finished.
-  - When you close KPI overlay (back arrow), you return to parent screen
-    and the KPI touch point + KPI label ("Click Here To See KPIs") are shown.
-  - Auto-return timers removed: guests must use the back arrow to return.
-  - KPI label positioning can be adjusted with KPI_LABEL_OFFSET_X / Y below.
+  iOS Compatibility Fixes Applied:
+  - Changed touch-action from 'none' to 'manipulation'
+  - Added webkit-playsinline to all videos
+  - Created addTouchHandler() for proper iOS touch event handling
+  - Added touchend listeners in addition to click events
 */
 
 /* ---------- Configurable KPI label offsets (pixels) ---------- */
-const KPI_LABEL_OFFSET_X = -280; // px (horizontal distance from KPI point's left)
-const KPI_LABEL_OFFSET_Y = -15;  // px (vertical offset from KPI point's top)
+const KPI_LABEL_OFFSET_X = -280;
+const KPI_LABEL_OFFSET_Y = -15;
 
 const centerContainer = document.getElementById('centerContainer');
 const backButton = document.getElementById('backButton');
@@ -249,8 +257,8 @@ let autoReturnTimeout = null;
 const activeOverlays = new Set();
 const touchedPoints = {};
 let kpiLabel = null;
-let kpiOverlayVid = null; // reference to the full-screen KPI video (if open)
-let kpiOverlayPrevScreen = null; // which screen to return to after closing KPI
+let kpiOverlayVid = null;
+let kpiOverlayPrevScreen = null;
 
 function dismissOrientationHint(persist = true){
   orientationWarning.classList.add('hidden');
@@ -258,16 +266,13 @@ function dismissOrientationHint(persist = true){
 }
 continueBtn.addEventListener('click', ()=>dismissOrientationHint(true));
 
-// Preloaded video references
 const preloadedVideos = {};
 
-// List of important videos to preload
 const videosToPreload = [
-  'assets/backgrounds/0.1.webm',   // main video
-  'assets/gifs/kpi.webm'           // KPI video
+  'assets/backgrounds/0.1.webm',
+  'assets/gifs/kpi.webm'
 ];
 
-// Preload function
 function preloadVideos(videos) {
   videos.forEach(src => {
     const vid = document.createElement('video');
@@ -275,18 +280,16 @@ function preloadVideos(videos) {
     vid.preload = 'auto';
     vid.muted = true;
     vid.playsInline = true;
-    // Keep hidden, don't attach to DOM yet
+    vid.setAttribute('webkit-playsinline', ''); // iOS compatibility
     vid.style.display = 'none';
     preloadedVideos[src] = vid;
 
-    // Optional: wait until ready to mark as preloaded
     vid.oncanplaythrough = () => {
       console.log(`Preloaded: ${src}`);
     };
   });
 }
 
-// Call it immediately
 preloadVideos(videosToPreload);
 
 /* ------------------ PRELOAD (lazy) ------------------ */
@@ -308,11 +311,13 @@ async function preloadAllAssets(){
       const i=new Image(); i.src=src; i.onload=i.onerror=res;
     } else res();
   })));
-  // Lazy load large assets a bit later to make UI interactive quickly.
   setTimeout(()=>largeAssets.forEach(src=>{
     const ext = src.split('.').pop().toLowerCase();
     if(['mp4','mov','webm'].includes(ext)){
       const v=document.createElement('video'); v.src=src; v.preload='auto';
+      v.muted = true;
+      v.playsInline = true;
+      v.setAttribute('webkit-playsinline', ''); // iOS compatibility
     } else { const i=new Image(); i.src=src; }
   }),2000);
 }
@@ -366,15 +371,34 @@ const states = {
   }
 };
 
+/* iOS-specific touch handler - handles both touch and click events */
+function addTouchHandler(element, handler) {
+  // Prevent default touch behavior that might interfere
+  element.addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+  }, { passive: true });
+  
+  // Use touchend for the actual action (more reliable on iOS than click)
+  element.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handler(e);
+  }, { passive: false });
+  
+  // Keep click for desktop/non-touch devices
+  element.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handler(e);
+  });
+}
+
 /* ------------------ RENDER ------------------ */
 function renderState(id){
   const s = states[id]; if(!s) return;
   if(!touchedPoints[id]) touchedPoints[id]=new Set();
 
-  // clear KPI overlay if open (cleanup only)
   closeKpiOverlayIfOpen(false);
 
-  // reset overridden onclick for back button (if any)
   backButton.onclick = null;
 
   try{ videoBg.pause(); videoBg.removeAttribute('src'); videoBg.load(); }catch(e){}
@@ -385,20 +409,20 @@ function renderState(id){
       const l=document.createElement('div'); l.className='sidebar left'; l.style.backgroundImage="url('assets/backgrounds/sidebar.webp')";
       const r=document.createElement('div'); r.className='sidebar right'; r.style.backgroundImage="url('assets/backgrounds/sidebar.webp')";
       stage.insertBefore(l, stage.firstChild); stage.insertBefore(r, stage.firstChild);
-      videoBg.src = s.video; videoBg.style.objectFit='contain'; videoBg.play().catch(()=>{});
+      videoBg.src = s.video; videoBg.style.objectFit='contain'; 
+      videoBg.play().catch(()=>{});
     } else {
-      videoBg.src = s.video; videoBg.style.objectFit='cover'; videoBg.play().catch(()=>{});
+      videoBg.src = s.video; videoBg.style.objectFit='cover'; 
+      videoBg.play().catch(()=>{});
     }
     stageBase.style.display='none';
   } else if(s.bg){
     stageBase.src = s.bg; stageBase.style.display='block';
   }
 
-  // remove previous interactive elements
   centerContainer.querySelectorAll('.touch-point, .overlay-layer, .overlay-video, .kpi-text').forEach(e=>e.remove());
   activeOverlays.clear();
 
-  // remove old KPI label reference
   if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
   if(s.points){
@@ -415,11 +439,11 @@ function renderState(id){
       }
 
       if(id === 'main' && pt.target === '0.1'){
-        el.addEventListener('click', playTransitionAndSwitch);
+        addTouchHandler(el, playTransitionAndSwitch);
       } else if(pt.type === 'kpi'){
-        el.addEventListener('click', ()=>showKpiOverlay(id, pt.id));
+        addTouchHandler(el, ()=>showKpiOverlay(id, pt.id));
       } else {
-        el.addEventListener('click', ()=>{
+        addTouchHandler(el, ()=>{
           touchedPoints[id].add(pt.id);
           if(pt.target) navigateTo(pt.target);
           else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
@@ -430,13 +454,10 @@ function renderState(id){
     });
   }
 
-  // ensure KPI label exists if KPI point is visible (handle returning from KPI)
   checkAndRevealKpi(id);
 
-  // hide or show back button depending on state
   backButton.classList.toggle('hidden', !s.backTarget);
 
-  // clear any autoReturn timeout (we do NOT set new timer)
   if(autoReturnTimeout) { clearTimeout(autoReturnTimeout); autoReturnTimeout = null; }
 
   currentState = id;
@@ -450,25 +471,20 @@ function checkAndRevealKpi(stateId){
 
   if(!allTouched) return;
 
-  // prefer a hidden kpi point (meaning it was just revealed)...
   let kpiPoint = centerContainer.querySelector('.touch-point.hidden-point');
 
-  // ...otherwise find any KPI touch point (visible)
   if(!kpiPoint) kpiPoint = Array.from(centerContainer.querySelectorAll('.touch-point'))
     .find(el => el.getAttribute('data-point-id') && el.getAttribute('data-point-id').endsWith('.kpi'));
 
   if(kpiPoint){
-    // ensure it is visible
     kpiPoint.classList.remove('hidden-point');
 
-    // Add KPI label beside the button (use configured offsets)
     if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
     kpiLabel = document.createElement('div');
     kpiLabel.className = 'kpi-text';
     kpiLabel.textContent = 'Click Here To See KPIs';
 
-    // Calculate position relative to centerContainer
     const pointLeft = kpiPoint.offsetLeft;
     const pointTop = kpiPoint.offsetTop;
 
@@ -483,17 +499,15 @@ function checkAndRevealKpi(stateId){
 function showKpiOverlay(parentId, pointId){
   const overlayId = parentId + '.overlay.' + pointId;
 
-  // Remove previous KPI overlays/text if any
   document.querySelectorAll('.overlay-video, .kpi-text').forEach(e=>e.remove());
   if(kpiLabel){ kpiLabel.remove(); kpiLabel = null; }
 
-  // Use preloaded KPI video
   const vid = preloadedVideos['assets/gifs/kpi.webm'];
   if(!vid) return;
 
   vid.id = overlayId;
-  vid.loop = false; // stop at last frame
-  vid.currentTime = 0; // restart
+  vid.loop = false;
+  vid.currentTime = 0;
   vid.style.position = 'fixed';
   vid.style.top = '0';
   vid.style.left = '0';
@@ -507,7 +521,6 @@ function showKpiOverlay(parentId, pointId){
   kpiOverlayVid = vid;
   kpiOverlayPrevScreen = parentId;
 
-  // Show back button above KPI video
   backButton.style.zIndex = '9999';
   backButton.classList.remove('hidden');
 
@@ -518,31 +531,24 @@ function showKpiOverlay(parentId, pointId){
 
   activeOverlays.add(overlayId);
 
-  // Auto-stop at last frame
   vid.onended = () => { vid.pause(); };
   vid.play().catch(()=>{});
 }
 
-
-/* Helper: close KPI overlay if open. `navigateParent` tells whether to navigate to parent after cleanup */
 function closeKpiOverlayIfOpen(navigateParent){
   if(kpiOverlayVid){
     try { kpiOverlayVid.remove(); } catch(e){}
     kpiOverlayVid = null;
   }
 
-  // remove any body-level KPI text elements
   document.querySelectorAll('body > .kpi-text').forEach(e => e.remove());
 
-  // remember prev screen then clear
   const prev = kpiOverlayPrevScreen;
   kpiOverlayPrevScreen = null;
 
-  // If navigateParent requested, navigate back to the parent (this will re-render and recreate KPI label)
   if(navigateParent && prev){
     navigateTo(prev);
   } else {
-    // No navigation: just restore back button visibility according to current state
     const s = states[currentState];
     backButton.classList.toggle('hidden', !s || !s.backTarget);
   }
@@ -567,9 +573,7 @@ function navigateTo(id){
   renderState(id);
 }
 
-// Global back button default behavior: go to current state's backTarget
-backButton.addEventListener('click', ()=>{
-  // If a custom onclick is set it runs first (overridden when KPI open).
+addTouchHandler(backButton, ()=>{
   if(typeof backButton.onclick !== 'function' || backButton.onclick === null){
     const s = states[currentState];
     if(s && s.backTarget) navigateTo(s.backTarget);
@@ -582,6 +586,7 @@ transitionVideo.src = 'assets/backgrounds/0.0.webm';
 transitionVideo.preload = 'auto';
 transitionVideo.muted = true;
 transitionVideo.playsInline = true;
+transitionVideo.setAttribute('webkit-playsinline', ''); // iOS compatibility
 Object.assign(transitionVideo.style, { position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', zIndex:3, display:'none' });
 document.body.appendChild(transitionVideo);
 
