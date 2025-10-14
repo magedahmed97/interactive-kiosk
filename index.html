@@ -114,14 +114,25 @@ html, body {
   transform: translate(-50%, -50%);
   pointer-events: auto;
   transition: opacity 0.3s ease;
-  /* Added iOS-specific touch improvements */
-  -webkit-tap-highlight-color: rgba(255,255,255,0.2);
+  /* Enhanced iOS touch support */
+  -webkit-tap-highlight-color: rgba(255,255,255,0.3);
   -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   touch-action: manipulation;
+  /* Ensure element is recognized as interactive on iOS */
+  min-width: 60px;
+  min-height: 60px;
 }
 .touch-point.hidden-point {
   opacity: 0;
   pointer-events: none;
+}
+
+/* Added visual feedback for debugging iOS touches */
+.touch-point.touching {
+  opacity: 0.7;
+  transform: translate(-50%, -50%) scale(0.95);
 }
 
 /* --- Overlays --- */
@@ -371,30 +382,66 @@ const states = {
   }
 };
 
-/* iOS-specific touch handler - handles both touch and click events */
+/* Improved iOS-specific touch handler with better event handling */
 function addTouchHandler(element, handler) {
-  // Prevent default touch behavior that might interfere
+  // Make element explicitly interactive for iOS
+  element.setAttribute('role', 'button');
+  element.setAttribute('tabindex', '0');
+  element.style.cursor = 'pointer';
+  
+  let touchHandled = false;
+  
+  // Handle touchstart for visual feedback
   element.addEventListener('touchstart', (e) => {
-    e.stopPropagation();
+    console.log('[v0] Touch started on:', element.getAttribute('data-point-id') || 'element');
+    touchHandled = false;
+    element.classList.add('touching');
   }, { passive: true });
   
-  // Use touchend for the actual action (more reliable on iOS than click)
+  // Use touchend for the actual action (most reliable on iOS)
   element.addEventListener('touchend', (e) => {
+    console.log('[v0] Touch ended on:', element.getAttribute('data-point-id') || 'element');
     e.preventDefault();
     e.stopPropagation();
-    handler(e);
+    element.classList.remove('touching');
+    
+    if (!touchHandled) {
+      touchHandled = true;
+      console.log('[v0] Executing handler for:', element.getAttribute('data-point-id') || 'element');
+      handler(e);
+    }
   }, { passive: false });
+  
+  // Handle touchcancel
+  element.addEventListener('touchcancel', (e) => {
+    console.log('[v0] Touch cancelled on:', element.getAttribute('data-point-id') || 'element');
+    element.classList.remove('touching');
+    touchHandled = false;
+  }, { passive: true });
   
   // Keep click for desktop/non-touch devices
   element.addEventListener('click', (e) => {
-    e.stopPropagation();
-    handler(e);
+    console.log('[v0] Click on:', element.getAttribute('data-point-id') || 'element');
+    if (!touchHandled) {
+      e.stopPropagation();
+      handler(e);
+    }
+    touchHandled = false;
+  });
+  
+  // Add keyboard support for accessibility
+  element.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handler(e);
+    }
   });
 }
 
 /* ------------------ RENDER ------------------ */
 function renderState(id){
   const s = states[id]; if(!s) return;
+  console.log('[v0] Rendering state:', id);
   if(!touchedPoints[id]) touchedPoints[id]=new Set();
 
   closeKpiOverlayIfOpen(false);
@@ -432,6 +479,7 @@ function renderState(id){
       el.style.left = pt.xPct + '%';
       el.style.top = pt.yPct + '%';
       el.setAttribute('data-point-id', pt.id);
+      el.setAttribute('aria-label', `Touch point ${pt.id}`);
 
       if(pt.type === 'kpi' && pt.requireAll){
         const allTouched = s.points.filter(p=>p.type!=='kpi').every(p => touchedPoints[id].has(p.id));
@@ -439,11 +487,15 @@ function renderState(id){
       }
 
       if(id === 'main' && pt.target === '0.1'){
+        console.log('[v0] Adding handler for main transition point');
         addTouchHandler(el, playTransitionAndSwitch);
       } else if(pt.type === 'kpi'){
+        console.log('[v0] Adding handler for KPI point:', pt.id);
         addTouchHandler(el, ()=>showKpiOverlay(id, pt.id));
       } else {
+        console.log('[v0] Adding handler for regular point:', pt.id);
         addTouchHandler(el, ()=>{
+          console.log('[v0] Point touched:', pt.id);
           touchedPoints[id].add(pt.id);
           if(pt.target) navigateTo(pt.target);
           else { toggleOverlay(id, pt.id); checkAndRevealKpi(id); }
@@ -591,12 +643,17 @@ Object.assign(transitionVideo.style, { position:'absolute', top:0, left:0, width
 document.body.appendChild(transitionVideo);
 
 function playTransitionAndSwitch(){
+  console.log('[v0] Playing transition to 0.1');
   const mainPoint = centerContainer.querySelector('.touch-point');
   if(mainPoint) mainPoint.classList.add('hidden-point');
   transitionVideo.currentTime = 0;
   transitionVideo.style.display = 'block';
-  transitionVideo.play();
-  transitionVideo.onended = ()=>{ transitionVideo.style.display = 'none'; navigateTo('0.1'); };
+  transitionVideo.play().catch(err => console.log('[v0] Video play error:', err));
+  transitionVideo.onended = ()=>{ 
+    console.log('[v0] Transition ended, navigating to 0.1');
+    transitionVideo.style.display = 'none'; 
+    navigateTo('0.1'); 
+  };
 }
 
 /* ------------------ SERVICE WORKER (optional; will error on file:///) ------------------ */
